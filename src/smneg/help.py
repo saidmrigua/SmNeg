@@ -58,7 +58,7 @@ SHORTCUT_SECTIONS = (
 )
 
 
-ABOUT_TEXT = "SMneg {version} · © 2026 Said Mrigua · Apache License 2.0"
+ABOUT_TEXT = "SMneg {version} · Created by Said Mrigua · © 2026 Said Mrigua · Apache License 2.0"
 
 
 def platform_keys(keys):

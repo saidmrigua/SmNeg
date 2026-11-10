@@ -44,35 +44,66 @@ def decode_negative(source_path: str, full_resolution: bool) -> np.ndarray:
                 np.asarray(Image.fromarray(decoded[:, :, i]).resize(size, Image.Resampling.BILINEAR), dtype=np.float32) / 65535.0
                 for i in range(3)
             ], axis=2)
-    elif ext in {".tif", ".tiff"}:
-        # Decode unchanged: Pillow's RGB conversion quantizes 16-bit sources.
-        decoded = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
-        if decoded is None:
-            raise ValueError("Unable to decode TIFF image.")
-        if decoded.dtype not in (np.uint8, np.uint16):
-            raise ValueError("Only 8-bit and 16-bit integer TIFF images are supported.")
-        if decoded.ndim == 2:
-            decoded = np.repeat(decoded[:, :, None], 3, axis=2)
-        elif decoded.ndim == 3 and decoded.shape[2] in (3, 4):
-            decoded = decoded[:, :, :3][:, :, ::-1]
-        else:
-            raise ValueError("Unsupported TIFF channel layout.")
-        # The OpenCV TIFF decoder applies TIFF orientation during decoding.
-        if not full_resolution:
-            h, w = decoded.shape[:2]
-            scale = min(1.0, 1600 / max(w, h))
-            if scale < 1:
-                decoded = cv2.resize(decoded, (max(1, int(w * scale)), max(1, int(h * scale))),
-                                     interpolation=cv2.INTER_AREA)
-        maximum = np.iinfo(decoded.dtype).max
-        values = np.ascontiguousarray(decoded, dtype=np.float32) / maximum
     else:
-        with Image.open(str(path)) as img:
-            rgb = ImageOps.exif_transpose(img).convert("RGB")
-            if not full_resolution:
-                rgb.thumbnail((1600, 1600))
-            values = np.asarray(rgb, dtype=np.float32) / 255.0
+        values = _decode_tiff_16bit(path, full_resolution) if ext in (".tif", ".tiff") else None
+        if values is None:
+            with Image.open(str(path)) as img:
+                rgb = ImageOps.exif_transpose(img).convert("RGB")
+                if not full_resolution:
+                    rgb.thumbnail((1600, 1600))
+                values = np.asarray(rgb, dtype=np.float32) / 255.0
     return values
+
+
+def apply_orientation(pixels: np.ndarray, orientation: int) -> np.ndarray:
+    """EXIF orientation 1-8 for an (h, w, c) array; same result as PIL.ImageOps.exif_transpose."""
+    if orientation == 2:
+        return pixels[:, ::-1]
+    if orientation == 3:
+        return pixels[::-1, ::-1]
+    if orientation == 4:
+        return pixels[::-1]
+    if orientation == 5:
+        return pixels.transpose(1, 0, 2)
+    if orientation == 6:
+        return np.rot90(pixels, -1)
+    if orientation == 7:
+        return pixels.transpose(1, 0, 2)[::-1, ::-1]
+    if orientation == 8:
+        return np.rot90(pixels, 1)
+    return pixels
+
+
+def _decode_tiff_16bit(path: Path, full_resolution: bool) -> np.ndarray | None:
+    """16-bit TIFF without quantizing to 8 bits. Returns None for anything else (8-bit, float, unreadable),
+    which then goes through the unchanged Pillow path."""
+    try:
+        encoded = np.fromfile(str(path), dtype=np.uint8)
+        pixels = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
+        if pixels is None or pixels.dtype != np.uint16:
+            return None
+        with Image.open(str(path)) as img:
+            orientation = int(img.getexif().get(274, 1))
+            stored_size = (int(img.tag_v2[256]), int(img.tag_v2[257]))   # (width, height) as stored in the file
+    except Exception:
+        return None
+    if pixels.ndim == 2:
+        pixels = np.stack([pixels] * 3, axis=2)
+    elif pixels.shape[2] >= 3:
+        pixels = pixels[:, :, :3]
+    else:
+        return None
+    pixels = cv2.cvtColor(np.ascontiguousarray(pixels), cv2.COLOR_BGR2RGB)
+    # some OpenCV builds already apply the EXIF orientation: only rotate if the stored layout is still unrotated
+    if pixels.shape[:2] == (stored_size[1], stored_size[0]):
+        pixels = apply_orientation(pixels, orientation)
+    pixels = np.ascontiguousarray(pixels)
+    if not full_resolution:
+        scale = min(1.0, 1600 / max(pixels.shape[:2]))
+        if scale < 1.0:
+            size = (max(1, int(pixels.shape[1] * scale)), max(1, int(pixels.shape[0] * scale)))
+            pixels = cv2.resize(pixels, size, interpolation=cv2.INTER_AREA)
+    return pixels.astype(np.float32) / 65535.0
 
 
 def tone_curve(levels: np.ndarray, profile: str) -> np.ndarray:

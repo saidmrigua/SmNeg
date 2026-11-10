@@ -4,15 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smneg"
-dynamic = ["version"]
-description = "Film negative inversion for camera scanning (RAW/TIFF to positive), with a Frontier-style color workflow."
+version = "0.2.0"
+description = "Film negative inversion for camera scanning (RAW/TIFF to positive) with a printer-lights color workflow."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md"]
 authors = [{ name = "Said Mrigua" }]
 keywords = ["film", "negative", "scanning", "inversion", "photography", "raw"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
     "Programming Language :: Python :: 3",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
@@ -29,17 +32,17 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/saidmrigua/SmNeg"
+Documentation = "https://github.com/saidmrigua/SmNeg/tree/smneg-release/docs"
+Changelog = "https://github.com/saidmrigua/SmNeg/blob/smneg-release/CHANGELOG.md"
+Releases = "https://github.com/saidmrigua/SmNeg/releases"
 Issues = "https://github.com/saidmrigua/SmNeg/issues"
 
 [project.optional-dependencies]
-tiff = ["tifffile>=2023.1"]   # kept for compatibility: tifffile is now a core dependency
+tiff = ["tifffile>=2023.1"]
 dev = ["pytest>=7", "pyflakes"]
 
 [project.scripts]
 smneg = "smneg.app:main"
-
-[tool.setuptools.dynamic]
-version = { attr = "smneg.__version__" }   # single source: src/smneg/__init__.py
 
 [tool.setuptools.packages.find]
 where = ["src"]

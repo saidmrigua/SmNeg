@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please check the [troubleshooting guide](https://github.com/saidmrigua/SmNeg/blob/smneg-release/docs/troubleshooting.md) first.
+        Do not attach client photos you are not allowed to share.
+  - type: input
+    id: version
+    attributes:
+      label: SMneg version
+      description: Shown at the bottom of the shortcuts window (F1), or the Release you downloaded.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options: [macOS .dmg, Windows .zip, pip / from source]
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.1 / Windows 11
+    validations:
+      required: true
+  - type: input
+    id: files
+    attributes:
+      label: Camera / file type
+      placeholder: Nikon Z8 NEF, 45 MP
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: Step by step, what you clicked or pressed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output
+      description: If you ran it from source, or `python -m smneg`, paste the error here.
+      render: shell

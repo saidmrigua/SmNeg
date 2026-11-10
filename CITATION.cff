@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: If you use SMneg, please cite it as below.
+title: SMneg
+abstract: Film negative inversion for camera scanning (RAW/TIFF to positive) with a printer-lights color workflow.
+type: software
+authors:
+  - family-names: Mrigua
+    given-names: Said
+repository-code: https://github.com/saidmrigua/SmNeg
+url: https://github.com/saidmrigua/SmNeg
+license: Apache-2.0
+version: 0.2.0
+date-released: 2026-11-10

@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe your scanning workflow and what is hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like SMneg to do?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: The inversion math in `engine.py` is intentionally stable; requests that change it need a strong reason.

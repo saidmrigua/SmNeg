@@ -32,7 +32,7 @@ from .camera_reference import camera_differences, read_camera_reference
 from .capture import (
     ACCESSIBILITY_REQUIRED, ACCESSIBILITY_SETTINGS, CAPTURE_SCRIPT, NX_TETHER_PATH, SHOOT_SHORTCUT,
 )
-from .crop import ManualCropDialog, apply_crop, set_frame_orientation, straighten_image
+from .crop import ManualCropDialog, apply_crop, reorient, straighten_image
 from . import film_profile as fp
 from . import scientific as sc
 from .engine import OfficialFilmEngine, decode_negative, source_max_edge, tone_curve
@@ -1995,25 +1995,34 @@ class SMnegWindow(QMainWindow):
             item.saturation = max(0.0, min(2.0, round(item.saturation + delta, 2)))
             self.refresh_current_view()
 
+    @staticmethod
+    def set_orientation(item, rotation, mirror):
+        """Change rotation / mirror and move the manual crop and the straighten angle with the picture content,
+        so the crop keeps framing the same part of the scene."""
+        rotation %= 360
+        item.manual_crop, item.straighten = reorient(
+            item.manual_crop, item.straighten, (item.rotation, item.mirror), (rotation, mirror))
+        item.rotation, item.mirror = rotation, mirror
+
     def rotate_cw(self):
         item = self.current_item()
         if item:
             self.begin_edit()
-            set_frame_orientation(item, item.rotation + 90, item.mirror)
+            self.set_orientation(item, item.rotation + 90, item.mirror)
             self.refresh_current_view()
 
     def rotate_ccw(self):
         item = self.current_item()
         if item:
             self.begin_edit()
-            set_frame_orientation(item, item.rotation - 90, item.mirror)
+            self.set_orientation(item, item.rotation - 90, item.mirror)
             self.refresh_current_view()
 
     def toggle_mirror(self):
         item = self.current_item()
         if item:
             self.begin_edit()
-            set_frame_orientation(item, item.rotation, not item.mirror)
+            self.set_orientation(item, item.rotation, not item.mirror)
             self.refresh_current_view()
 
     def toggle_auto_crop(self):
@@ -2085,7 +2094,7 @@ class SMnegWindow(QMainWindow):
             f.sharpness = self.held_settings["sharpness"]
             f.tone_profile = self.held_settings["tone_profile"]
             f.auto_print = self.held_settings["auto_print"]
-            set_frame_orientation(f, self.held_settings["rotation"], self.held_settings["mirror"])
+            self.set_orientation(f, self.held_settings["rotation"], self.held_settings["mirror"])
             f.auto_crop = self.held_settings["auto_crop"]
         changed = [(f, saved) for f, saved in snapshots if self.snapshot(f) != saved]
         self.last_edit = None
@@ -2125,7 +2134,7 @@ class SMnegWindow(QMainWindow):
             item.sharpness = self.copied_settings["sharpness"]
             item.tone_profile = self.copied_settings["tone_profile"]
             item.auto_print = self.copied_settings["auto_print"]
-            set_frame_orientation(item, self.copied_settings["rotation"], self.copied_settings["mirror"])
+            self.set_orientation(item, self.copied_settings["rotation"], self.copied_settings["mirror"])
             item.auto_crop = self.copied_settings["auto_crop"]
             self.refresh_current_view()
 
@@ -2200,7 +2209,6 @@ class SMnegWindow(QMainWindow):
 
         exported = []
         failed = []
-        preview_exports = 0
         export_settings = {
             "format": "TIFF 16-bit" if file_format == "tiff" else "JPEG 8-bit",
             "jpeg_quality": options.quality.value() if file_format == "jpeg" else None,
@@ -2219,15 +2227,13 @@ class SMnegWindow(QMainWindow):
                               max_edge=export_settings["max_edge"], file_format=file_format)
 
         def collect(job):
-            future, filename, photo, used_preview = job
-            nonlocal preview_exports
+            future, filename, photo = job
             try:
                 width, height = future.result()
             except (OSError, ValueError) as error:
                 failed.append(f"{filename} — {error}")
             else:
                 exported.append({**photo, "width": width, "height": height})
-                preview_exports += int(used_preview)
 
         # pipeline: load the next frame ‖ render the current one ‖ write the previous one (identical output, faster)
         loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="smneg-export-load")
@@ -2246,9 +2252,10 @@ class SMnegWindow(QMainWindow):
 
                 base_full = next_load.result()
                 next_load = loader.submit(fetch, valid[i + 1]) if i + 1 < len(valid) else None
-                used_preview = base_full is None
-                if used_preview:
-                    failed.append(f"{names[i]} — Full-resolution source unavailable; frame skipped.")
+                if base_full is None:
+                    # never write a preview-resolution image in place of the full-resolution one
+                    failed.append(f"{names[i]} — {Path(item.path).name} could not be decoded at full "
+                                  f"resolution ({self.load_error(item.path)}); not exported")
                     continue
 
                 rendered = self.render_frame(item, base_full, output_16bit=file_format == "tiff")
@@ -2266,12 +2273,12 @@ class SMnegWindow(QMainWindow):
                     "source": source.name,
                     "processed_date": item.processed_date,
                     "source_modified_at": source_modified_at,
-                    "resolution": "preview" if used_preview else "full",
+                    "resolution": "full",
                 }
                 embedded = {**asdict(metadata), **export_settings, **photo} if embed else None
                 if previous_job is not None:
                     collect(previous_job)
-                previous_job = (writer.submit(write, dest / filename, rendered, embedded), filename, photo, used_preview)
+                previous_job = (writer.submit(write, dest / filename, rendered, embedded), filename, photo)
                 rendered = None
             if previous_job is not None:
                 collect(previous_job)
@@ -2295,11 +2302,9 @@ class SMnegWindow(QMainWindow):
             summary += "\nExport interrupted."
         if file_format == "tiff" and options.embed.isChecked() and not TIFF_METADATA_AVAILABLE:
             summary += "\nMetadata not embedded in the TIFF: install the module with  pip install tifffile"
-        if preview_exports:
-            summary += f"\n{preview_exports} exported at preview resolution."
         summary += f"\nDuration: {format_duration(time.monotonic() - started)}"
         if failed:
-            summary += "\nSave failed:\n" + "\n".join(failed)
+            summary += "\nNot exported:\n" + "\n".join(failed)
         box = QMessageBox(self)
         box.setWindowTitle("Export finished")
         box.setIcon(QMessageBox.Icon.Warning if failed else QMessageBox.Icon.Information)

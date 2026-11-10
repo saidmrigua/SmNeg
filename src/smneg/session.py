@@ -19,85 +19,70 @@ FRAME_FIELDS = tuple(
 )
 
 
-def validate_session(data):
-    """Reject invalid projects before callers change the active session."""
-    def invalid(message):
-        raise ValueError(f"Invalid session: {message}")
+_FRAME_TYPES = {
+    "cyan": int, "magenta": int, "yellow": int, "density": int, "rotation": int, "sharpness": int,
+    "contrast": float, "saturation": float, "straighten": float,
+    "mirror": bool, "auto_crop": bool, "show_clipping": bool, "is_passed": bool,
+    "processed_date": str, "tone_profile": str, "auto_print": bool,
+}
 
-    if not isinstance(data, dict):
-        invalid("expected a JSON object")
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check(condition, message):
+    if not condition:
+        raise ValueError(f"Invalid session file: {message}")
+
+
+def _is_rgb(value):
+    """Three positive linear values (a film base or a grey pick measured on the scan)."""
+    return (isinstance(value, (list, tuple)) and len(value) == 3
+            and all(_is_number(v) and math.isfinite(v) and 0 < v <= 2 for v in value))
+
+
+def validate_session(data):
+    """Check the structure and types of a session before it is used; raises ValueError with a clear message.
+    Unknown keys are ignored so that newer files still open."""
+    _check(isinstance(data, dict), "the top level must be an object")
     frames = data.get("frames", [])
-    if not isinstance(frames, list):
-        invalid("frames must be a list")
-    for key in ("current_idx", "view"):
-        value = data.get(key, 0)
-        if type(value) is not int or value < 0:
-            invalid(f"{key} must be a nonnegative integer")
-    if data.get("view", 0) not in (0, 1):
-        invalid("unknown view")
-    for key in ("session_info", "camera_reference"):
-        if not isinstance(data.get(key, {}), dict):
-            invalid(f"{key} must be an object")
-    if any(not isinstance(value, str) for value in data.get("session_info", {}).values()):
-        invalid("session information must contain text")
-    if data.get("engine", "classic") not in ENGINES:
-        invalid("unknown engine")
-    for key in ("camera_profile", "film_profile"):
-        if not isinstance(data.get(key, ""), str):
-            invalid(f"{key.replace('_', ' ')} must be a file path")
-    if data.get("meter", "balanced") not in METERS:
-        invalid("unknown meter mode")
-    reference = data.get("film_base_reference")
-    if reference is not None and (
-        not isinstance(reference, dict) or not isinstance(reference.get("files", []), list)
-        or any(not isinstance(p, str) for p in reference.get("files", []))
-        or not isinstance(reference.get("base"), list) or len(reference["base"]) != 3
-        or any(type(v) not in (int, float) or not math.isfinite(v) or not 0 < v <= 2 for v in reference["base"])
-    ):
-        invalid("invalid film base reference")
-    if not isinstance(data.get("flat_field_reference", ""), str):
-        invalid("flat-field reference must be text")
-    defaults = FrameItem(0, "", None)
-    for frame in frames:
-        if not isinstance(frame, dict) or not isinstance(frame.get("path"), str) or not frame["path"]:
-            invalid("each frame needs a nonempty path")
-        for key in FRAME_FIELDS:
+    _check(isinstance(frames, list), '"frames" must be a list')
+    for number, frame in enumerate(frames, start=1):
+        _check(isinstance(frame, dict), f"frame {number} must be an object")
+        _check(isinstance(frame.get("path"), str) and frame["path"], f'frame {number} needs a "path" text')
+        for key, kind in _FRAME_TYPES.items():
             if key not in frame:
                 continue
-            value, default = frame[key], getattr(defaults, key)
-            if key == "grey_picks":
-                if value is not None and (
-                    not isinstance(value, list) or len(value) > 8
-                    or any(not isinstance(p, (list, tuple)) or len(p) != 3
-                           or any(type(v) not in (int, float) or not math.isfinite(v) or not 0 < v <= 2 for v in p)
-                           for p in value)
-                ):
-                    invalid("invalid grey picks")
-            elif key == "base_pick":
-                if value is not None and (
-                    not isinstance(value, (list, tuple)) or len(value) != 3
-                    or any(type(v) not in (int, float) or not math.isfinite(v) or not 0 < v <= 2 for v in value)
-                ):
-                    invalid("invalid film base")
-            elif key == "manual_crop":
-                if value is not None and (
-                    not isinstance(value, (list, tuple)) or len(value) != 4
-                    or any(type(v) not in (int, float) or not math.isfinite(v) or not 0 <= v <= 1 for v in value)
-                    or value[2] <= value[0] or value[3] <= value[1]
-                ):
-                    invalid("invalid crop rectangle")
-            elif isinstance(default, bool):
-                if type(value) is not bool:
-                    invalid(f"{key} must be boolean")
-            elif isinstance(default, (int, float)):
-                if type(value) not in (int, float) or not math.isfinite(value):
-                    invalid(f"{key} must be finite numeric data")
-                if isinstance(default, int) and type(value) is not int:
-                    invalid(f"{key} must be an integer")
-            elif not isinstance(value, str):
-                invalid(f"{key} must be text")
-        if frame.get("contrast", 1) < 0 or frame.get("saturation", 1) < 0:
-            invalid("contrast and saturation must be nonnegative")
+            value = frame[key]
+            ok = (_is_number(value) if kind is float
+                  else isinstance(value, int) and not isinstance(value, bool) if kind is int
+                  else isinstance(value, kind))
+            _check(ok, f'frame {number}: "{key}" has the wrong type')
+        _check(frame.get("rotation", 0) % 90 == 0, f'frame {number}: "rotation" must be a multiple of 90')
+        base_pick = frame.get("base_pick")
+        _check(base_pick is None or _is_rgb(base_pick), f'frame {number}: "base_pick" must be three positive numbers')
+        picks = frame.get("grey_picks")
+        _check(picks is None or (isinstance(picks, list) and len(picks) <= 8 and all(map(_is_rgb, picks))),
+               f'frame {number}: "grey_picks" must be a short list of RGB values')
+        crop = frame.get("manual_crop")
+        _check(crop is None or (isinstance(crop, (list, tuple)) and len(crop) == 4 and all(map(_is_number, crop))),
+               f'frame {number}: "manual_crop" must be four numbers')
+    current = data.get("current_idx", 0)
+    _check(isinstance(current, int) and not isinstance(current, bool), '"current_idx" must be an integer')
+    for key in ("session_info", "camera_reference"):
+        _check(isinstance(data.get(key, {}), dict), f'"{key}" must be an object')
+    reference = data.get("flat_field_reference")
+    _check(reference is None or isinstance(reference, str), '"flat_field_reference" must be text')
+    _check(data.get("engine", "classic") in ENGINES, '"engine" is unknown')
+    _check(data.get("meter", "balanced") in METERS, '"meter" is unknown')
+    for key in ("camera_profile", "film_profile"):
+        _check(isinstance(data.get(key, ""), str), f'"{key}" must be a file path')
+    film_base = data.get("film_base_reference")
+    _check(film_base is None or (
+        isinstance(film_base, dict) and isinstance(film_base.get("files", []), list)
+        and all(isinstance(path, str) for path in film_base.get("files", [])) and _is_rgb(film_base.get("base"))
+    ), '"film_base_reference" is invalid')
     return data
 
 

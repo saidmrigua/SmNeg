@@ -11,11 +11,51 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[tiff,dev]"
-      - run: python -m pyflakes src tests
+      - run: python -m pyflakes src tests packaging
       - run: pytest -q
+
+  package:
+    # build the wheel and sdist, then install the wheel in a clean environment OUTSIDE the checkout
+    # so missing package data or source-path assumptions show up
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - name: Install the wheel in a clean virtual environment and import it
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          if [ -d "$RUNNER_TEMP/clean/Scripts" ]; then BIN="$RUNNER_TEMP/clean/Scripts"; else BIN="$RUNNER_TEMP/clean/bin"; fi
+          "$BIN/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$BIN/python" -c "
+          import smneg, pathlib
+          from smneg import engine, export, session
+          assets = pathlib.Path(smneg.__file__).with_name('assets')
+          assert (assets / 'icon.png').is_file() and (assets / 'icon.ico').is_file(), 'package data missing'
+          assert 'site-packages' in smneg.__file__, smneg.__file__
+          print('smneg', smneg.__version__, 'imported from', smneg.__file__)"
+      - name: Install the sdist in a clean virtual environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/clean-sdist"
+          if [ -d "$RUNNER_TEMP/clean-sdist/Scripts" ]; then BIN="$RUNNER_TEMP/clean-sdist/Scripts"; else BIN="$RUNNER_TEMP/clean-sdist/bin"; fi
+          "$BIN/python" -m pip install dist/*.tar.gz
+          cd "$RUNNER_TEMP" && "$BIN/python" -c "import smneg; print(smneg.__version__)"

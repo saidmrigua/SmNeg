@@ -16,34 +16,6 @@ from PySide6.QtWidgets import (
 CropBounds = tuple[float, float, float, float]
 
 
-def rotate_crop(bounds: CropBounds | None, clockwise: bool = True) -> CropBounds | None:
-    """Move normalized crop bounds with a quarter-turn of the displayed image."""
-    if bounds is None:
-        return None
-    left, top, right, bottom = bounds
-    if clockwise:
-        return (1 - bottom, left, 1 - top, right)
-    return (top, 1 - right, bottom, 1 - left)
-
-
-def set_frame_orientation(item, rotation: int, mirror: bool):
-    """Preserve a frame's selected content when its orientation changes."""
-    bounds = item.manual_crop
-    if bounds is not None:
-        for _ in range((item.rotation % 360) // 90):
-            bounds = rotate_crop(bounds, clockwise=False)
-        if item.mirror != mirror:
-            left, top, right, bottom = bounds
-            bounds = (1 - right, top, 1 - left, bottom)
-        for _ in range((rotation % 360) // 90):
-            bounds = rotate_crop(bounds)
-    if item.mirror != mirror:
-        item.straighten = -item.straighten
-    item.manual_crop = bounds
-    item.rotation = rotation % 360
-    item.mirror = mirror
-
-
 def straighten_image(image: np.ndarray, angle: float) -> np.ndarray:
     if not angle:
         return image
@@ -55,6 +27,46 @@ def straighten_image(image: np.ndarray, angle: float) -> np.ndarray:
     transform = cv2.getRotationMatrix2D(center, angle, scale)
     return cv2.warpAffine(image, transform, (width, height),
                           flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+def rotate_bounds(bounds: CropBounds, clockwise: bool) -> CropBounds:
+    """The same crop box after the image is turned by 90 degrees (all values are fractions of the image size)."""
+    left, top, right, bottom = bounds
+    if clockwise:
+        return (1 - bottom, left, 1 - top, right)
+    return (top, 1 - right, bottom, 1 - left)
+
+
+def flip_bounds(bounds: CropBounds) -> CropBounds:
+    """The same crop box after the image is mirrored left to right."""
+    left, top, right, bottom = bounds
+    return (1 - right, top, 1 - left, bottom)
+
+
+def to_source_bounds(bounds: CropBounds, rotation: int, mirror: bool) -> CropBounds:
+    """Crop box on the displayed image (mirrored, then rotated clockwise) -> box on the untouched source frame."""
+    for _ in range((rotation % 360) // 90):
+        bounds = rotate_bounds(bounds, clockwise=False)
+    return flip_bounds(bounds) if mirror else tuple(bounds)
+
+
+def from_source_bounds(bounds: CropBounds, rotation: int, mirror: bool) -> CropBounds:
+    """Crop box on the untouched source frame -> box on the displayed image."""
+    if mirror:
+        bounds = flip_bounds(bounds)
+    for _ in range((rotation % 360) // 90):
+        bounds = rotate_bounds(bounds, clockwise=True)
+    return tuple(bounds)
+
+
+def reorient(bounds: CropBounds | None, straighten: float, old: tuple[int, bool], new: tuple[int, bool]):
+    """Keep a manual crop and the straighten angle on the same picture content when rotation or mirror changes.
+    `old` and `new` are (rotation, mirror). Returns (bounds, straighten)."""
+    if bounds is not None:
+        bounds = from_source_bounds(to_source_bounds(bounds, *old), *new)
+    if straighten and old[1] != new[1]:
+        straighten = -straighten          # mirroring reverses the direction of a small rotation
+    return bounds, straighten
 
 
 def apply_crop(image: np.ndarray, bounds: CropBounds | None) -> np.ndarray:

@@ -20,8 +20,8 @@ flowchart LR
 ## 1. Decoding
 Camera RAW files (Nikon, Fujifilm, DNG, Canon, Sony and the other formats LibRaw reads) are decoded with LibRaw (through `rawpy`) as **linear 16-bit data with no
 white balance, no auto brightness and no color conversion**, so the orange mask of a color negative is kept
-and the inversion works on real sensor values. 16-bit TIFF is read as linear data (OpenCV); JPEG, PNG and 8-bit TIFF are read as sRGB-encoded and
-linearized by the Scientific engine. Previews use a
+and the inversion works on real sensor values. JPEG and PNG sources, and 8-bit TIFF, are read with Pillow and treated as
+sRGB-encoded (the Scientific engine linearizes them); 16-bit TIFF is decoded as linear data without reducing it to 8 bits. Previews use a
 half-size decode (at most 1600 px); full resolution is only decoded for export and for 100 % zoom.
 
 ## 2. Flat-field (optional)
@@ -140,6 +140,9 @@ Applied to the inverted base, in this order:
 | Contrast | `(x - 0.5) * contrast + 0.5` |
 | Saturation | multiply S in HSV |
 | Mirror, rotation (90° steps), auto-crop (5 % border) | geometric |
+
+Manual crops and the straighten angle belong to the picture, not to the screen: when rotation or mirror changes, the crop box
+is moved with the content (`crop.reorient`), so it keeps framing the same part of the scene.
 
 Then the window adds the tone profile (*Natural*, *Flat*, *S Curve*), sharpness, manual crop and
 straightening. Because the pipeline is pure NumPy on the same base array, changing a key re-renders without

@@ -7,7 +7,7 @@
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 
-Invert camera-scanned film negatives (RAW or TIFF) into positives, adjust them with a printer-lights style
+Invert camera-scanned film negatives (RAW, TIFF, JPEG or PNG) into positives, adjust them with a printer-lights style
 color workflow, and export to JPEG or 16-bit TIFF with an sRGB ICC profile and metadata.
 
 ![Before and after: a color negative photographed with a digital camera, and the SMneg result](docs/images/harbour-before-after.jpg)
@@ -20,6 +20,9 @@ More examples: [crates](docs/images/crates-before-after.jpg) · [building](docs/
 Built for photographers who scan film with a digital camera. The workflow will feel familiar to people
 who have used Frontier-style scanning controllers. SMneg is an independent project, not affiliated
 with FUJIFILM or Nikon (see [NOTICE](NOTICE)).
+
+**Contents:** [Features](#features) · [Screenshots](#screenshots) · [Download](#download) · [Quick start](#quick-start) ·
+[Documentation](#documentation) · [Status and limits](#status-and-limits) · [Contributing](#contributing-and-support) · [License](#license)
 
 ## Features
 - **Scientific engine** (default, `scientific.py`), see [How it works](docs/how-it-works.md):
@@ -59,34 +62,38 @@ with FUJIFILM or Nikon (see [NOTICE](NOTICE)).
 | ![Session information dialog](docs/images/ui-session-info.png) | ![Keyboard shortcuts](docs/images/ui-shortcuts.png) |
 
 ## Download
-The release workflow is configured to build macOS `.dmg`, Windows `.zip`, wheel and sdist artifacts.
-Check [GitHub Releases](https://github.com/saidmrigua/SmNeg/releases) for available downloads. The apps are not code-signed: on macOS right-click the app
-and choose *Open* the first time; on Windows choose *More info → Run anyway* in SmartScreen.
+Pre-built apps (macOS Apple Silicon `.dmg`, Windows x64 `.zip`), a wheel and an sdist are attached to every
+[GitHub Release](https://github.com/saidmrigua/SmNeg/releases/latest). The apps are not code-signed, so the system asks
+for confirmation the first time (macOS: *Open Anyway* in System Settings → Privacy & Security; Windows: *More info →
+Run anyway*). Step by step: [docs/installation.md](docs/installation.md).
 
-## Install from source
-Requires Python 3.10 or newer.
-```bash
-git clone https://github.com/saidmrigua/SmNeg.git smneg && cd smneg
-python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e .
-```
+## Quick start
+1. Install: the app from a [Release](https://github.com/saidmrigua/SmNeg/releases/latest), or from source:
+   ```bash
+   git clone https://github.com/saidmrigua/SmNeg.git smneg && cd smneg
+   python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+   pip install -e .
+   smneg                           # or: python -m smneg   or: python smneg.py
+   ```
+   Requires Python 3.10+. Details, Gatekeeper / SmartScreen steps: [docs/installation.md](docs/installation.md).
+2. Click **NEW SESSION**, fill in the shoot information, then **Select Roll Folder** (or **HOT FOLDER**).
+3. Adjust (`Q/A W/S E/D` color, `↑/↓` density), press `P` to skip a frame, `⌘E` to export.
+   Full walk-through: [docs/workflow.md](docs/workflow.md).
 
-## Run
-```bash
-smneg                 # or: python -m smneg   or: python smneg.py
-```
+**Supported files.** In: camera RAW (every format LibRaw reads: `.nef .raf .dng .cr2 .cr3 .arw .orf .rw2 .pef` …), `.tif/.tiff`, `.jpg/.jpeg`, `.png`. Out: JPEG 8-bit or TIFF 16-bit with
+EXIF/XMP metadata and an optional `metadata.json`. See [docs/file-formats.md](docs/file-formats.md).
 
-## Configuration
-Settings (last folders, export options, presets, autocomplete history) are stored with Qt's `QSettings`
-under the name *SMneg*; nothing is sent over the network and no API keys are used. Settings saved
-by the pre-release version are imported automatically on first launch. Each session stores its data in
-`smneg-session.json` inside the session folder (older `frontier-session.json` files still open).
+**Privacy.** Everything runs locally. Nothing is sent over the network and there are no accounts or API keys.
+Settings use Qt's `QSettings` under the name *SMneg*; each session keeps its data in `smneg-session.json` in its folder
+(older `frontier-session.json` files still open).
 
-## Platform notes
-| | macOS | Windows |
-|---|---|---|
-| Inversion, zoom, export | yes | expected to work, see limits |
-| Nikon NX Tether capture button | yes (needs Accessibility permission) | disabled |
+## Documentation
+Start at the [documentation index](docs/README.md):
+[installation](docs/installation.md) · [workflow](docs/workflow.md) · [shortcuts](docs/shortcuts.md) ·
+[file formats and metadata](docs/file-formats.md) · [troubleshooting](docs/troubleshooting.md) ·
+[how it works](docs/how-it-works.md) · [development](docs/development.md) · [releasing](docs/releasing.md) ·
+[changelog](CHANGELOG.md) ·
+[calibrating a film](docs/calibration.md) · [audit report](AUDIT_REPORT.md)
 
 ## Color accuracy, honestly
 Version 0.1.0 was tested by the community on IT8 targets shot on film and had large grey errors (ΔE 5.8–21.5): its
@@ -96,41 +103,51 @@ Version 0.1.0 was tested by the community on IT8 targets shot on film and had la
 to 2.2–3.1 after one density setting, and to about 0.9 C* on the greys with a film profile. These are simulation
 results: **measurements on real IT8 / ColorChecker targets shot on film are welcome** (open an issue with the scans).
 
-## Known limits
+## Status and limits
+SMneg is in beta (0.2.0). It is used daily on macOS; Windows is expected to work but has not been
+tested on real hardware yet (CI runs automated tests on both).
+
+| | macOS | Windows |
+|---|---|---|
+| Inversion, zoom, export | yes | expected to work |
+| Nikon NX Tether capture button | yes (needs Accessibility permission) | disabled |
+| Pre-built app | `.dmg` for Apple Silicon only (Intel: run from source), not notarized | `.zip` (64-bit), not signed |
+
 - Automatic neutral balance without a film profile is estimated per roll; a slight cast can remain in the
-  extreme highlights or shadows. A grey pick (`N`) or a film profile corrects it.
+  extreme highlights or shadows. Grey picks (`N`) or a film profile correct it.
 - A camera profile (IT8 transparency) is exact for slides; for negatives it is an approximation, and a film
   profile (ColorChecker on film) is the more accurate correction. Using both at once is not recommended.
 - Export is sRGB only (no Adobe RGB / ProPhoto yet); the preview is not color-managed for wide-gamut displays.
-- TIFF input supports 8-bit and 16-bit integer images. Floating-point TIFF is rejected.
-- If a source cannot be decoded at full resolution, export skips it and reports the failure; previews are never substituted.
-- Developed and used on macOS. Windows support has not been tested on real hardware yet; CI runs the
-  non-GUI tests on both systems.
-- Full-resolution (45 MP class) frames need several GB of RAM (zoom caches the last full frame).
-- RAW demosaicing speed is bounded by LibRaw. The inversion itself is parallelized.
-- Version bounds in `pyproject.toml` are conservative; 0.2.0 was tested with Python 3.13, PySide6 6.8, NumPy 2.3,
-  Pillow 12.3, rawpy 0.26 (LibRaw 0.22), OpenCV 4.10 and tifffile 2026.3 on macOS (Apple silicon).
-- `window.py` is large; splitting it is planned.
-
-## Documentation
-- [How it works](docs/how-it-works.md): decoding, density inversion, color pipeline, module map
-- [Using SMneg: a typical session](docs/workflow.md)
-- [Keyboard shortcuts](docs/shortcuts.md)
-- [Calibrating a film with a ColorChecker](docs/calibration.md)
-- [Audit report](AUDIT_REPORT.md): the 0.1.0 problems and what changed
+- 45 MP class frames need several GB of RAM (zoom caches the last full-resolution frame).
+- RAW demosaicing speed is bounded by LibRaw; the inversion itself is parallelized.
+- `window.py` is large; splitting it is planned. Offscreen Qt tests cover crop, undo/redo, sessions and TIFF export; visual and real-camera checks remain manual.
+- 0.2.0 was tested with PySide6 6.8 and 6.12, NumPy 2.2 and 2.3, Pillow 12, rawpy 0.26 and 0.27, OpenCV 4.10 and 5.0,
+  on Python 3.10 and 3.13 (macOS, Apple silicon); the bounds in `pyproject.toml` are conservative.
 
 ## Tests
 ```bash
-pip install -e ".[dev]" && pytest
+pip install -e ".[dev]" && QT_QPA_PLATFORM=offscreen pytest -q
 python tests/audit/audit_color.py        # color-accuracy report (Classic vs Scientific, synthetic film)
 ```
-`tests/test_scientific.py` and `tests/test_film_profile.py` measure color accuracy (grey ΔE, neutrality, film base,
-B&W, scan-exposure invariance, preview = export); `tests/test_engine_golden.py` keeps the Classic engine unchanged;
-the other tests cover the GUI workflow (pickers, Auto print, profiles, HOLD, import), crop, flat-field, filename
-templates, sessions, settings migration, TIFF/XMP/ICC and the hot folder.
+289 tests. `tests/test_scientific.py` and `tests/test_film_profile.py` measure color accuracy (grey ΔE, neutrality,
+film base, B&W, scan-exposure invariance, preview = export); `tests/test_gui_scientific.py` drives the pickers, Auto print,
+profiles and import through the real window. `tests/test_engine_golden.py` keeps the Classic engine unchanged; the others cover the
+color pipeline, crop, flat-field, filename templates, sessions, settings migration, TIFF/XMP and the hot folder.
+`tests/test_gui_workflow.py` exercises real Qt widgets with isolated temporary settings and synthetic scans.
+
+## Contributing and support
+Bug reports, ideas and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) ·
+[open an issue](https://github.com/saidmrigua/SmNeg/issues/new/choose) · [code of conduct](CODE_OF_CONDUCT.md) ·
+[security policy](SECURITY.md). To cite SMneg, see [CITATION.cff](CITATION.cff).
 
 ## License
 Code: Apache License 2.0, Copyright 2026 Said Mrigua. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
+Third-party libraries keep their own licenses: see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+The pre-built apps contain them.
+
 Photographs in `docs/images/` are © 2026 Said Mrigua, all rights reserved. They are included to illustrate the
 software and may not be reused without permission.
+
+## Author
+Said Mrigua, photographer, Morocco. [saidmrigua.com](https://saidmrigua.com/) · [@mrigua_said](https://www.instagram.com/mrigua_said/)

@@ -1,82 +1,217 @@
 name: Release
-# Push a tag such as v0.1.0 to build the macOS app, the Windows app, a wheel and an sdist,
-# then attach them to a GitHub Release.
+# Push a tag such as v0.1.0 to test the tagged revision, build the macOS (Apple Silicon) app, the Windows app,
+# a wheel and an sdist, smoke-test the apps, then attach everything to a GitHub Release.
+# Run it by hand (Actions tab -> Release -> Run workflow) to rehearse the build without publishing.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      refresh_existing:
+        description: Refresh existing first release (0.1.0), including its tag and downloads
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
-  python-package:
-    runs-on: ubuntu-latest
+  validate:
+    # nothing is built or published unless the tests pass on this exact revision
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: python -m pip install build
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[tiff,dev]"
+      - run: python -m pyflakes src tests packaging
+      - run: pytest -q
+      - name: The tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          # -P: do not put the checkout folder first on sys.path, so the installed package is imported, not smneg.py
+          VERSION=$(python -P -c "import smneg; print(smneg.__version__)")
+          test "v$VERSION" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != version v$VERSION"; exit 1; }
+
+  python-package:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
       - run: python -m build
-      - uses: actions/upload-artifact@v4
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v7
         with:
           name: python-package
           path: dist/*
 
   macos-app:
+    needs: validate
+    # macos-latest is an Apple Silicon (arm64) runner, so this app is arm64 only
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[tiff]" pyinstaller
       - run: sh packaging/make_icns.sh
       - run: pyinstaller packaging/smneg.spec --noconfirm
+      - name: Smoke test the built app (imports, assets, inversion, window)
+        run: |
+          file dist/SMneg.app/Contents/MacOS/SMneg
+          QT_QPA_PLATFORM=offscreen dist/SMneg.app/Contents/MacOS/SMneg --self-test
       - name: Create disk image
         run: |
           mkdir -p dmg && cp -R dist/SMneg.app dmg/
-          hdiutil create -volname SMneg -srcfolder dmg -ov -format UDZO SMneg-macOS.dmg
-      - uses: actions/upload-artifact@v4
+          hdiutil create -volname SMneg -srcfolder dmg -ov -format UDZO SMneg-macOS-arm64.dmg
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-app
-          path: SMneg-macOS.dmg
+          path: SMneg-macOS-arm64.dmg
 
   windows-app:
+    needs: validate
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[tiff]" pyinstaller
       - run: pyinstaller packaging/smneg.spec --noconfirm
-      - name: Zip the app
-        run: Compress-Archive -Path dist/SMneg -DestinationPath SMneg-Windows.zip
+      - name: Smoke test the built app (imports, assets, inversion, window)
         shell: pwsh
-      - uses: actions/upload-artifact@v4
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $p = Start-Process -FilePath dist/SMneg/SMneg.exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
+      - name: Zip the app
+        run: Compress-Archive -Path dist/SMneg -DestinationPath SMneg-Windows-x64.zip
+        shell: pwsh
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-app
-          path: SMneg-Windows.zip
+          path: SMneg-Windows-x64.zip
 
   publish:
     needs: [python-package, macos-app, windows-app]
-    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      GH_TOKEN: ${{ secrets.SMNEG_RELEASE_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: ${{ github.sha }}
+    if: startsWith(github.ref, 'refs/tags/') || inputs.refresh_existing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.SMNEG_RELEASE_TOKEN || github.token }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - name: Back up existing first-release downloads
+        if: inputs.refresh_existing
+        run: |
+          test "${GITHUB_REF_NAME}" = "smneg-release"
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          test "$VERSION" = "0.1.0"
+          mkdir previous-release
+          gh release view v0.1.0 --json tagName,targetCommitish,body,assets > previous-release/release.json
+          gh release download v0.1.0 --dir previous-release
+          git rev-parse refs/tags/v0.1.0 > previous-release/original-tag-object.txt
+      - uses: actions/upload-artifact@v7
+        if: inputs.refresh_existing
         with:
+          name: previous-v0.1.0-release
+          path: previous-release/*
+          retention-days: 90
+      - name: Align release tag and prepare package provenance
+        id: release
+        env:
+          REFRESH: ${{ inputs.refresh_existing }}
+        run: |
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          TAG="v$VERSION"
+          if [ "$REFRESH" = "true" ]; then
+            test "$TAG" = "v0.1.0"
+            OLD=$(cat previous-release/original-tag-object.txt)
+            if [ "$OLD" != "$SOURCE_SHA" ]; then
+              git push origin "$OLD:refs/tags/archive/$TAG-$OLD"
+              git push --force-with-lease="refs/tags/$TAG:$OLD" origin "$SOURCE_SHA:refs/tags/$TAG"
+            fi
+          else
+            test "$TAG" = "$GITHUB_REF_NAME"
+          fi
+          test "$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | tail -1 | cut -f1)" = "$SOURCE_SHA"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          cp artifacts/SMneg-macOS-arm64.dmg artifacts/SMneg-macOS.dmg
+          cp artifacts/SMneg-Windows-x64.zip artifacts/SMneg-Windows.zip
+          printf 'SMneg %s\nCreated and developed by Said Mrigua\nCopyright 2026 Said Mrigua\nLicense: Apache-2.0\nSource commit: %s\nBuild run: %s/%s/actions/runs/%s\n' "$VERSION" "$SOURCE_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > artifacts/BUILD_INFO.txt
+          (cd artifacts && sha256sum *) > /tmp/SHA256SUMS.txt
+          mv /tmp/SHA256SUMS.txt artifacts/SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: artifacts/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
           generate_release_notes: true
           body: |
-            ## SMneg ${{ github.ref_name }}
-            Film negative inversion for camera scanning. © 2026 Said Mrigua, Apache-2.0.
+            ## SMneg ${{ steps.release.outputs.tag }}
+            Created and developed by **Said Mrigua** — Copyright 2026 Said Mrigua. Licensed under Apache-2.0.
 
-            - **macOS**: download `SMneg-macOS.dmg`. The app is not notarized: right-click the app and choose *Open* the first time.
-            - **Windows**: download `SMneg-Windows.zip`, unzip, run `SMneg.exe` (SmartScreen may warn: *More info* then *Run anyway*).
-            - **Python**: `pip install smneg-*.whl` (or the `.tar.gz`).
+            ### Download
+            - **[Download for Mac (Apple Silicon, M1 or newer)](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/SMneg-macOS-arm64.dmg)** — `SMneg-macOS-arm64.dmg`
+            - **[Download for Windows (64-bit)](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/SMneg-Windows-x64.zip)** — `SMneg-Windows-x64.zip`
+            - **[Download for Python (wheel)](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/smneg-0.1.0-py3-none-any.whl)** — or the [source package (sdist)](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/smneg-0.1.0.tar.gz)
+
+            ### Install
+            - **macOS**: open the `.dmg` and drag SMneg to Applications. The app is not notarized: right-click → *Open* (macOS 14 and older) or *System Settings → Privacy & Security → Open Anyway* (macOS 15+). Intel Macs: install from source (see the installation guide).
+            - **Windows**: unzip, then run `SMneg.exe` inside the `SMneg` folder (SmartScreen may warn: *More info* → *Run anyway*).
+            - **Python 3.10+**: `pip install smneg-0.1.0-py3-none-any.whl`, then run `smneg`.
+
+            ### Fixed in this release
+            - A manual crop stays on the same part of the picture after rotate / mirror, including through Copy-Paste and Hold.
+            - 16-bit TIFF input keeps its full 16-bit precision (inversion formulas unchanged).
+            - Export never writes a preview-resolution image when the full-resolution decode fails; the frame is listed as not exported.
+            - Session files are validated before use, with a clear error for an invalid structure.
+
+            ### Provenance
+            Source commit: `${{ github.sha }}`. The tag, every download and the automatic *Source code* archives refer to this commit.
+            [BUILD_INFO.txt](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/BUILD_INFO.txt) · [SHA256SUMS.txt](https://github.com/saidmrigua/SmNeg/releases/download/${{ steps.release.outputs.tag }}/SHA256SUMS.txt).
+            `SMneg-macOS.dmg` and `SMneg-Windows.zip` are byte-identical copies of the architecture-labelled apps, kept so older links keep working.
+            The tests passed on macOS and Windows for this commit, and each app ran an automatic start-up self-test before publishing. The graphical interface has not yet been checked on real Windows hardware.
+
+            Details: [installation guide](https://github.com/saidmrigua/SmNeg/blob/${{ steps.release.outputs.tag }}/docs/installation.md) · [changelog](https://github.com/saidmrigua/SmNeg/blob/${{ steps.release.outputs.tag }}/CHANGELOG.md) · [LICENSE](https://github.com/saidmrigua/SmNeg/blob/${{ steps.release.outputs.tag }}/LICENSE) · [NOTICE](https://github.com/saidmrigua/SmNeg/blob/${{ steps.release.outputs.tag }}/NOTICE) · [third-party licenses](https://github.com/saidmrigua/SmNeg/blob/${{ steps.release.outputs.tag }}/THIRD_PARTY_LICENSES.md).
+      - name: Verify published asset digests
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh api "repos/$GH_REPO/releases/tags/$TAG" > /tmp/release.json
+          python3 - <<'PYVERIFY'
+          import hashlib, json
+          from pathlib import Path
+          release = json.loads(Path('/tmp/release.json').read_text())
+          assets = {item['name']: item for item in release['assets']}
+          for path in Path('artifacts').iterdir():
+              expected = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
+              assert assets[path.name]['digest'] == expected, path.name
+          print('All published files match this build.')
+          PYVERIFY

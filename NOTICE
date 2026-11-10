@@ -1,33 +1,26 @@
 SMneg
 Copyright 2026 Said Mrigua
+Created and developed by Said Mrigua.
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
-SMneg is an independent project. It is not affiliated with, endorsed by or
-sponsored by FUJIFILM Corporation, Nikon Corporation, X-Rite / Calibrite or
-LaserSoft Imaging. "FUJIFILM", "Frontier", "Nikon", "NX Tether", "ColorChecker",
-"IT8" and "SilverFast" are trademarks of their respective owners and are
-mentioned only to describe compatibility and workflow.
+Photographs in docs/images/ are Copyright 2026 Said Mrigua, all rights reserved.
+They are not covered by the Apache License.
 
-The ColorChecker 24 reference values in src/smneg/film_profile.py are the
-manufacturer's published CIELAB (D50) values for the chart, used as measurement
-data.
+SMneg is an independent project. It is not affiliated with, endorsed by or
+sponsored by FUJIFILM Corporation or Nikon Corporation. "FUJIFILM", "Frontier",
+"Nikon" and "NX Tether" are trademarks of their respective owners and are
+mentioned only to describe compatibility and workflow.
 
 Third-party software
 --------------------
-Installed from source or as a Python package (pip), SMneg uses these libraries,
-installed separately under their own licenses:
+SMneg uses PySide6 / Qt for Python (LGPL-3.0), rawpy (MIT) with LibRaw
+(LGPL-2.1 or CDDL-1.0), opencv-python (Apache-2.0), NumPy (BSD-3-Clause),
+Pillow (HPND) and tifffile (BSD-3-Clause).
 
-  PySide6 / Qt for Python   LGPL-3.0 (https://www.qt.io/qt-for-python)
-  rawpy                     MIT, with LibRaw (LGPL-2.1 or CDDL-1.0)
-  opencv-python             Apache-2.0 (bundles third-party code under its own licenses)
-  NumPy                     BSD-3-Clause
-  Pillow                    MIT-CMU (HPND), with Little CMS (MIT)
-  tifffile                  BSD-3-Clause
+"ColorChecker", "IT8" and "SilverFast" are trademarks of their respective owners. The ColorChecker 24
+reference values in src/smneg/film_profile.py are the manufacturer's published CIELAB (D50) values.
 
-The pre-built applications (macOS .dmg, Windows .zip) are made with PyInstaller
-and contain copies of these libraries, unmodified. Their license files are
-included in the application (package metadata folders). Qt / PySide6 and LibRaw
-are dynamically linked libraries that you may replace with your own builds
-under the terms of the LGPL. Their source code is available from the projects
-above.
+The source distribution and the wheel do not contain these packages; pip
+installs them. The pre-built apps attached to GitHub Releases are built with
+PyInstaller and do contain them. See THIRD_PARTY_LICENSES.md for details.

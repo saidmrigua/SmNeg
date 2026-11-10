@@ -38,8 +38,9 @@ def test_missing_full_source_never_exports_preview(tmp_path, monkeypatch, missin
     monkeypatch.setattr(window, 'save_image', lambda path, *args, **kwargs: saves.append(path.name) or (2, 2))
     app = SimpleNamespace(items=items, current_idx=0, session_info={}, persist_project=lambda: True,
         load_scan=lambda path, **kwargs: None if int(Path(path).stem) in missing else np.ones((2, 2, 3)),
+        load_error=lambda path: 'unreadable file',
         render_frame=MagicMock(return_value=np.zeros((2, 2, 3), dtype=np.uint8)))
     window.SMnegWindow.export_batch(app)
     assert saves == [f'{i}.jpg' for i in range(2) if i not in missing]
     assert app.render_frame.call_count == 2 - len(missing)
-    assert 'Full-resolution source unavailable' in box.setText.call_args.args[0]
+    assert 'not exported' in box.setText.call_args.args[0]
