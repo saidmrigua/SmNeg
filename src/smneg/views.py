@@ -183,6 +183,7 @@ class ImageCanvas(QWidget):
 
     zoomStarted = Signal()
     zoomEnded = Signal()
+    pointPicked = Signal(float, float)      # position in the shown image, 0..1 (pick mode)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -197,6 +198,27 @@ class ImageCanvas(QWidget):
         self.cx = 0.5
         self.cy = 0.5
         self._drag = None
+        self._picking = False
+
+    # ---- pick mode (grey / film-base pickers) ----
+    def set_pick_mode(self, active: bool):
+        self._picking = bool(active)
+        if self._picking:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self._sync_cursor()
+
+    def is_picking(self) -> bool:
+        return self._picking
+
+    def image_position(self, pos: QPointF):
+        """Widget position -> (u, v) in the shown image (0..1), or None outside the image."""
+        if self._preview is None:
+            return None
+        disp_w, disp_h = self._display_size()
+        u = (pos.x() - (self.width() / 2 - self.cx * disp_w)) / disp_w
+        v = (pos.y() - (self.height() / 2 - self.cy * disp_h)) / disp_h
+        return (u, v) if 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0 else None
 
     # ---- images ----
     def set_preview(self, rgb: np.ndarray):
@@ -288,6 +310,9 @@ class ImageCanvas(QWidget):
         self.zoomEnded.emit()
 
     def _sync_cursor(self):
+        if self._picking:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            return
         self.setCursor(Qt.CursorShape.OpenHandCursor if self.is_zoomed() else Qt.CursorShape.ArrowCursor)
 
     # ---- events ----
@@ -300,6 +325,13 @@ class ImageCanvas(QWidget):
         event.accept()
 
     def mousePressEvent(self, event):
+        if self._picking and event.button() == Qt.MouseButton.LeftButton:
+            point = self.image_position(event.position())
+            if point is not None:
+                self.set_pick_mode(False)
+                self.pointPicked.emit(*point)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self.is_zoomed():
             self._drag = (event.position(), self.cx, self.cy)
             self.setCursor(Qt.CursorShape.ClosedHandCursor)

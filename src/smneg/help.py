@@ -13,12 +13,17 @@ SHORTCUT_SECTIONS = (
         ("Q / A", "Cyan + / −"),
         ("W / S", "Magenta + / −"),
         ("E / D", "Yellow + / −"),
+        ("N", "Grey picker: click a neutral grey; again on a lighter / darker grey to fix highlights and shadows"),
+        ("⇧N", "Clear the grey picks"),
+        ("B", "Film-base picker: click the clear film rebate"),
+        ("⇧B", "Film base back to automatic"),
     )),
     ("Density and tone", (
         ("↑ / ↓", "Density + / −"),
         ("⌥↑ / ⌥↓", "Contrast + / −"),
         ("⌘↑ / ⌘↓", "Saturation + / −"),
         ("T", "Tone profile: Natural → Flat → S Curve"),
+        ("L", "Auto print on / off (Scientific engine; off = flat master)"),
         ("R", "Reset the frame"),
     )),
     ("Image", (

@@ -12,7 +12,7 @@ from xml.sax.saxutils import escape
 
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageCms
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
@@ -27,6 +27,8 @@ except ImportError:       # pip install tifffile  (needed to embed metadata in T
     tifffile = None
 
 TIFF_METADATA_AVAILABLE = tifffile is not None
+# Exports are sRGB-encoded (both engines): say so in the file, so every application reads them the same way.
+SRGB_ICC = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
 
 
 @dataclass(frozen=True)
@@ -148,11 +150,11 @@ def save_tiff16(path, pixels, metadata=None, max_edge=0):
             tifffile.imwrite(
                 str(path), pixels, photometric="rgb", compression="deflate",
                 compressionargs={"level": 1}, metadata=None, description=description,
-                software="SMneg", datetime=stamp, extratags=extratags,
+                software="SMneg", datetime=stamp, extratags=extratags, iccprofile=SRGB_ICC,
             )
         except Exception as error:
             path.unlink(missing_ok=True)
-            raise OSError(f"TIFF write failed : {error}") from error
+            raise OSError(f"TIFF write failed: {error}") from error
         return width, height
 
     bgr = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
@@ -184,7 +186,8 @@ def save_image(path, pixels, metadata=None, *, quality=100, max_edge=0, file_for
         fields = json.dumps(metadata, ensure_ascii=False)
         exif[37510] = b"UNICODE\x00" + fields.encode("utf-16-be")
     try:
-        image.save(path, format="JPEG", quality=quality, subsampling=0 if quality >= 95 else 2, exif=exif)
+        image.save(path, format="JPEG", quality=quality, subsampling=0 if quality >= 95 else 2, exif=exif,
+                   icc_profile=SRGB_ICC)
     except (OSError, ValueError):
         path.unlink(missing_ok=True)
         raise
@@ -728,7 +731,7 @@ class SessionInfoDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(8)
 
-        # ---- modèles ----
+        # ---- presets ----
         presets_row = QHBoxLayout()
         presets_row.addWidget(QLabel("Preset"))
         self.presets = QComboBox()
@@ -783,7 +786,7 @@ class SessionInfoDialog(QDialog):
         self.btn_delete_preset.clicked.connect(self.delete_preset)
         self.refresh()
 
-    # ---- historique (autocomplétion) ----
+    # ---- history (autocompletion) ----
     def history(self, key):
         try:
             values = json.loads(self.settings.value(f"session_history/{key}", "[]", type=str))
@@ -799,7 +802,7 @@ class SessionInfoDialog(QDialog):
             values = [item for item in self.history(key) if item.lower() != value.lower()]
             self.settings.setValue(f"session_history/{key}", json.dumps([value] + values[: self.HISTORY_LIMIT - 1], ensure_ascii=False))
 
-    # ---- modèles ----
+    # ---- presets ----
     def load_presets(self):
         try:
             data = json.loads(self.settings.value("session_presets", "{}", type=str))
@@ -843,7 +846,7 @@ class SessionInfoDialog(QDialog):
             self.settings.setValue("session_presets", json.dumps(presets, ensure_ascii=False))
         self.reload_presets()
 
-    # ---- validation + aperçu ----
+    # ---- validation + preview ----
     def refresh(self, *_):
         info = self.info()
         title_edit = self.edits["shoot_title"]

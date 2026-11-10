@@ -4,7 +4,12 @@ import cv2
 import numpy as np
 
 
-RAW_EXTENSIONS = {".raf", ".nef", ".nrw", ".dng"}
+# camera RAW formats decoded by LibRaw (rawpy): Nikon, Fujifilm, Adobe DNG, Canon, Sony, Olympus/OM,
+# Panasonic/Leica, Pentax, Samsung, Hasselblad, Phase One, Leica, Kodak, Mamiya, Sigma
+RAW_EXTENSIONS = {
+    ".nef", ".nrw", ".raf", ".dng", ".cr2", ".cr3", ".crw", ".arw", ".srf", ".sr2", ".orf", ".rw2", ".raw",
+    ".rwl", ".pef", ".srw", ".3fr", ".fff", ".iiq", ".erf", ".kdc", ".dcr", ".mos", ".mef", ".x3f",
+}
 
 
 def build_flat_field(reference: np.ndarray) -> np.ndarray:

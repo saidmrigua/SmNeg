@@ -29,3 +29,12 @@ class FrameItem:
     processed_date: str = field(default_factory=lambda: date.today().isoformat())
     straighten: float = 0.0
     tone_profile: str = "Natural"
+    # Scientific engine: automatic print exposure and contrast (neutral, per frame); off = flat master
+    auto_print: bool = True
+    # film base picked by hand (linear RGB of the clear film), scientific engine; None = automatic
+    base_pick: list | None = None
+    # grey picks (linear scan RGB of areas that should be neutral); two or more at different tones also
+    # correct the tilt between the dye layers (cast in the highlights or shadows)
+    grey_picks: list | None = None
+    # scientific engine: film-base / density statistics of the preview (not saved, recomputed on load)
+    stats: object = field(default=None, repr=False, compare=False)

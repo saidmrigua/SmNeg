@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Source distribution: the tests must run from the sdist too
+include LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md
+recursive-include tests *.py
+recursive-include tests/data *.npz
+recursive-include docs *.md
+prune tests/__pycache__

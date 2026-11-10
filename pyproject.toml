@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smneg"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Film negative inversion for camera scanning (RAW/TIFF to positive), with a Frontier-style color workflow."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
     "opencv-python>=4.8",
     "numpy>=1.24",
     "Pillow>=10.0",
+    "tifffile>=2023.1",
 ]
 
 [project.urls]
@@ -31,11 +32,14 @@ Homepage = "https://github.com/saidmrigua/SmNeg"
 Issues = "https://github.com/saidmrigua/SmNeg/issues"
 
 [project.optional-dependencies]
-tiff = ["tifffile>=2023.1"]
+tiff = ["tifffile>=2023.1"]   # kept for compatibility: tifffile is now a core dependency
 dev = ["pytest>=7", "pyflakes"]
 
 [project.scripts]
 smneg = "smneg.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "smneg.__version__" }   # single source: src/smneg/__init__.py
 
 [tool.setuptools.packages.find]
 where = ["src"]

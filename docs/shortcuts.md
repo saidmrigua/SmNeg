@@ -11,6 +11,11 @@ On Windows, `⌘` is `Ctrl`, `⌥` is `Alt` and `⇧` is `Shift`. Press `F1` in 
 | `W / S` | Magenta + / − |
 | `E / D` | Yellow + / − |
 
+| `N` | Grey picker: click a neutral grey (sets C and Y); again on a lighter or darker grey to also correct highlights and shadows |
+| `⇧N` | Clear the grey picks |
+| `B` | Film-base picker: click the clear film between frames (rebate) |
+| `⇧B` | Film base back to automatic detection |
+
 ## Density and tone
 
 | Keys | Action |
@@ -19,6 +24,7 @@ On Windows, `⌘` is `Ctrl`, `⌥` is `Alt` and `⇧` is `Shift`. Press `F1` in 
 | `⌥↑ / ⌥↓` | Contrast + / − |
 | `⌘↑ / ⌘↓` | Saturation + / − |
 | `T` | Tone profile: Natural → Flat → S Curve |
+| `L` | Auto print on / off (Scientific engine; off = flat master) |
 | `R` | Reset the frame |
 
 ## Image

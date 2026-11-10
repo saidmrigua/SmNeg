@@ -4,15 +4,30 @@ Copyright 2026 Said Mrigua
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 SMneg is an independent project. It is not affiliated with, endorsed by or
-sponsored by FUJIFILM Corporation or Nikon Corporation. "FUJIFILM", "Frontier",
-"Nikon" and "NX Tether" are trademarks of their respective owners and are
+sponsored by FUJIFILM Corporation, Nikon Corporation, X-Rite / Calibrite or
+LaserSoft Imaging. "FUJIFILM", "Frontier", "Nikon", "NX Tether", "ColorChecker",
+"IT8" and "SilverFast" are trademarks of their respective owners and are
 mentioned only to describe compatibility and workflow.
 
-Third-party software used at runtime (installed separately, not bundled):
-  PySide6 / Qt for Python   LGPL-3.0 / GPL / commercial (https://www.qt.io/qt-for-python)
-  rawpy                     MIT (uses LibRaw: LGPL-2.1 or CDDL-1.0)
-  opencv-python             Apache-2.0
+The ColorChecker 24 reference values in src/smneg/film_profile.py are the
+manufacturer's published CIELAB (D50) values for the chart, used as measurement
+data.
+
+Third-party software
+--------------------
+Installed from source or as a Python package (pip), SMneg uses these libraries,
+installed separately under their own licenses:
+
+  PySide6 / Qt for Python   LGPL-3.0 (https://www.qt.io/qt-for-python)
+  rawpy                     MIT, with LibRaw (LGPL-2.1 or CDDL-1.0)
+  opencv-python             Apache-2.0 (bundles third-party code under its own licenses)
   NumPy                     BSD-3-Clause
-  Pillow                    HPND
-  tifffile (optional)       BSD-3-Clause
-Check each project's license before redistributing a bundled application.
+  Pillow                    MIT-CMU (HPND), with Little CMS (MIT)
+  tifffile                  BSD-3-Clause
+
+The pre-built applications (macOS .dmg, Windows .zip) are made with PyInstaller
+and contain copies of these libraries, unmodified. Their license files are
+included in the application (package metadata folders). Qt / PySide6 and LibRaw
+are dynamically linked libraries that you may replace with your own builds
+under the terms of the LGPL. Their source code is available from the projects
+above.

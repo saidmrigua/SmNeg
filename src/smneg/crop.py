@@ -16,6 +16,34 @@ from PySide6.QtWidgets import (
 CropBounds = tuple[float, float, float, float]
 
 
+def rotate_crop(bounds: CropBounds | None, clockwise: bool = True) -> CropBounds | None:
+    """Move normalized crop bounds with a quarter-turn of the displayed image."""
+    if bounds is None:
+        return None
+    left, top, right, bottom = bounds
+    if clockwise:
+        return (1 - bottom, left, 1 - top, right)
+    return (top, 1 - right, bottom, 1 - left)
+
+
+def set_frame_orientation(item, rotation: int, mirror: bool):
+    """Preserve a frame's selected content when its orientation changes."""
+    bounds = item.manual_crop
+    if bounds is not None:
+        for _ in range((item.rotation % 360) // 90):
+            bounds = rotate_crop(bounds, clockwise=False)
+        if item.mirror != mirror:
+            left, top, right, bottom = bounds
+            bounds = (1 - right, top, 1 - left, bottom)
+        for _ in range((rotation % 360) // 90):
+            bounds = rotate_crop(bounds)
+    if item.mirror != mirror:
+        item.straighten = -item.straighten
+    item.manual_crop = bounds
+    item.rotation = rotation % 360
+    item.mirror = mirror
+
+
 def straighten_image(image: np.ndarray, angle: float) -> np.ndarray:
     if not angle:
         return image

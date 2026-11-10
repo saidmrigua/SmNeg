@@ -27,7 +27,11 @@ def decode_negative(source_path: str, full_resolution: bool) -> np.ndarray:
                 use_auto_wb=False,
                 use_camera_wb=False,
                 user_wb=[1, 1, 1, 1],
-                output_color=rawpy.ColorSpace.raw
+                output_color=rawpy.ColorSpace.raw,
+                # LibRaw's default (0.75) may switch the scale to the image's own maximum, so one frame of
+                # a roll can decode brighter than the others (measured: +11 % on a Z8 scan). 0 keeps every
+                # frame on the camera's white level.
+                adjust_maximum_thr=0.0,
             )
         h, w = decoded.shape[:2]
         if full_resolution:
@@ -40,6 +44,28 @@ def decode_negative(source_path: str, full_resolution: bool) -> np.ndarray:
                 np.asarray(Image.fromarray(decoded[:, :, i]).resize(size, Image.Resampling.BILINEAR), dtype=np.float32) / 65535.0
                 for i in range(3)
             ], axis=2)
+    elif ext in {".tif", ".tiff"}:
+        # Decode unchanged: Pillow's RGB conversion quantizes 16-bit sources.
+        decoded = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if decoded is None:
+            raise ValueError("Unable to decode TIFF image.")
+        if decoded.dtype not in (np.uint8, np.uint16):
+            raise ValueError("Only 8-bit and 16-bit integer TIFF images are supported.")
+        if decoded.ndim == 2:
+            decoded = np.repeat(decoded[:, :, None], 3, axis=2)
+        elif decoded.ndim == 3 and decoded.shape[2] in (3, 4):
+            decoded = decoded[:, :, :3][:, :, ::-1]
+        else:
+            raise ValueError("Unsupported TIFF channel layout.")
+        # The OpenCV TIFF decoder applies TIFF orientation during decoding.
+        if not full_resolution:
+            h, w = decoded.shape[:2]
+            scale = min(1.0, 1600 / max(w, h))
+            if scale < 1:
+                decoded = cv2.resize(decoded, (max(1, int(w * scale)), max(1, int(h * scale))),
+                                     interpolation=cv2.INTER_AREA)
+        maximum = np.iinfo(decoded.dtype).max
+        values = np.ascontiguousarray(decoded, dtype=np.float32) / maximum
     else:
         with Image.open(str(path)) as img:
             rgb = ImageOps.exif_transpose(img).convert("RGB")

@@ -11,8 +11,11 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
-# local backups made during development
+# local backups, marketing material and audit outputs: never published
 _backup_*/
+_release_backup_*/
+_instagram_*/
+_website_*/
 dmg/
 icon.iconset/
 icon.icns
