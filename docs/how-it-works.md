@@ -46,24 +46,24 @@ Each step has a physical meaning and is measured, not guessed:
    exposure value per frame is metered (median density) and pulled 70 % towards the frame and 30 %
    towards the roll, so high-key and low-key frames keep some of their character.
 5. **Printer lights** C/M/Y and D are offsets in log exposure: 1 point = 0.025 log E (1/12 stop).
-6. **Auto print** (on by default, `L` to switch, per frame). Like a lab printer's automatic exposure and
-   contrast, but with **one correction for the three channels**, so greys stay grey and colours stay
-   tied to the film base. The frame's range (0.5 / 99.5 % of film pixels, holder and bare light
-   excluded) is measured on brightness; its middle tone is taken a third of the way up that range
-   (so a dark wall stays dark and a sunlit wall stays light) and prints a little above mid grey.
-   A shadow grade brings the darkest tone to paper black and a highlight grade brings the lightest to
-   paper white (split grade, joined smoothly), then a paper curve with a soft toe and shoulder rolls
-   both ends off. Colour differences are stretched at most 1.5×, so thin negatives printed hard do
-   not turn garish. Off, the engine gives the **flat master** described below.
-   Auto print also smooths **colour noise**, which a hard grade amplifies: the fine detail of colour
-   (log exposure minus its luma, below 1.5 px of a 1600 px preview, scaled with the image) is removed
-   where colour is flat and kept at colour edges. Brightness, grain and the flat master are untouched
-   (colour noise ÷1.5 to ÷3.6 on the synthetic model; a noise-free image changes by 0.008 ΔE00).
-   **Meter** (`METER` menu, saved with the session) says where exposure and contrast come from:
-   *Frame* measures each frame alone (it corrects exposure errors but follows the picture: the same grey
-   printed 24 L* apart across five scenes); *Roll lock* uses the range of the whole roll, so the same
-   tone prints the same in every frame (spread 0), and exposure errors stay visible; *Balanced*
-   (default) is half of each and gave the most even result on a mixed roll.
+6. **Auto print** (on by default, `L` to switch, per frame). The Classic engine's rendering, which keeps
+   open shadows and bright mid-tones, made neutral and stable over the roll:
+   - each channel's balanced density is normalized between a shadow end and a highlight end (0.5 / 99.5 %
+     of the film pixels in the centre of the scan; holder, sprocket holes and bare light excluded), then
+     shown through a 1/1.4 power as display value;
+   - the ends are split into **brightness** (exposure and contrast) and **colour** (each channel's ends
+     relative to brightness). Colour belongs to the film, so it is always the roll's: the median of its
+     frames, which one strongly coloured frame cannot tint. Classic takes it from each frame alone, which
+     is why its colour follows the picture's content;
+   - **Meter** (`METER` menu, saved with the session) sets where brightness comes from: *Frame* (each
+     frame alone, like Classic), *Roll lock* (the whole roll: the same tone prints the same in every
+     frame) or *Balanced* (default, half of each). On the synthetic roll, grey chroma is 0.5 with
+     Balanced, against 2.7 for Classic;
+   - with a film profile or on B&W film the three channels share the same ends (the measured balance is
+     trusted);
+   - colour noise is smoothed (edge-aware, below 1.5 px of a 1600 px preview); brightness and grain are
+     untouched. Far beyond white (opaque holder) colour fades to neutral.
+   Off, the engine gives the **flat master** described below.
    **Flat master tone.** "Natural" reproduces scene contrast 1:1 (flat, no added contrast) with a soft shoulder
    above 80 % so highlights never clip hard. "Flat" lowers contrast to 0.85, "S Curve" raises it to 1.25.
 7. **Camera profile (optional, `CAMERA` button).** A profile measured on an IT8 *transparency* target

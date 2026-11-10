@@ -69,8 +69,8 @@ class RollModel:
     slopes: np.ndarray      # (3,) multiply densities so neutral greys get equal values (green = 1)
     meter: float            # roll-median green density above base (exposure reference)
     frames: int = 0
-    print_low: float | None = None    # roll's darkest / lightest tones (0.5 / 99.5 % of all frames pooled),
-    print_high: float | None = None   # as green-equivalent density / gamma (anchor-free log exposure)
+    luma_ends: np.ndarray | None = None    # (2,) roll's shadow / highlight ends of brightness (all frames pooled)
+    colour_ends: np.ndarray | None = None  # (2, 3) each channel's ends relative to brightness (median of the frames)
 
 
 @dataclass
@@ -82,10 +82,7 @@ class FrameParams:
     mono: bool = False
     crosstalk: np.ndarray | None = None   # film profile: 3x3 unmix applied to density above base
     balance: tuple | None = None          # from grey picks: (slope R, offset R, slope B, offset B) on density
-    print_gain: float = 1.0               # Auto print: highlight contrast grade (same for the three channels)
-    print_offset: float = 0.0             # Auto print: where the middle tone prints (log10 rel. mid grey)
-    print_gain_low: float | None = None   # Auto print: shadow contrast grade (None = same as print_gain)
-    print_pivot: float = 0.0              # Auto print: the frame's middle tone (log exposure)
+    bounds: np.ndarray | None = None      # Auto print: (2, 3) shadow and highlight ends per channel, in balanced density
     print_paper: bool = False             # Auto print: render through the paper curve (toe + shoulder)
 
 
@@ -345,17 +342,19 @@ def roll_model(stats: list[FrameStats], film=None, reference: np.ndarray | None 
     slopes = dye_slopes(pooled)
     model = RollModel(base=np.asarray(base, np.float32), slopes=slopes, meter=float(np.median(meters)),
                       frames=len(stats))
-    levels = []
-    for s in stats:      # the roll's tonal range, for Auto print's roll-level exposure and contrast
+    lumas, colours = [], []
+    for s in stats:      # the roll's print range (Auto print with the Balanced or Roll meter)
         if s.samples is None or len(s.samples) < 100 or s.mono:
             continue
         zero = FrameParams(base=np.asarray(frame_base(s, base), np.float32),
                            slopes=film.slopes_array if film is not None else slopes, anchor=0.0,
-                           gamma=float(film.gamma) if film is not None else FILM_GAMMA,
                            crosstalk=film.matrix_array if film is not None else None)
-        levels.append(scene_log_exposure(np.power(np.float32(10.0), -s.samples)[None], zero)[0] @ PRINT_LUMA)
-    if levels:
-        model.print_low, model.print_high = (float(v) for v in np.percentile(np.concatenate(levels), PRINT_ENDS))
+        _, colour, luma = print_ends(s.samples, zero, film is not None)
+        lumas.append(luma)
+        colours.append(colour)
+    if lumas:
+        model.luma_ends = np.percentile(np.concatenate(lumas), PRINT_ENDS).astype(np.float64)
+        model.colour_ends = np.median(np.array(colours), axis=0)
     return model
 
 
@@ -388,6 +387,7 @@ def frame_base(stats: FrameStats, roll_base: np.ndarray) -> np.ndarray:
 
 
 PICK_TONE_GAP = 0.15           # grey picks this far apart in density also correct the tilt (not only the offset)
+PICK_TONE_GAP_PRINT = 0.10     # the same, in the normalized print range (Auto print)
 PICK_TILT_LIMITS = (0.7, 1.4)
 
 
@@ -398,14 +398,16 @@ def grey_balance(picks, params: FrameParams) -> tuple:
     the red and blue layers against green, which is what removes a cast that grows towards the highlights
     or the shadows. Least squares on green-equivalent density: R·s + o = G (and the same for B).
     Returns (slope R, offset R, slope B, offset B)."""
-    flat = FrameParams(base=params.base, slopes=params.slopes, anchor=0.0, gamma=1.0, crosstalk=params.crosstalk)
-    density = scene_log_exposure(np.asarray(picks, np.float32)[None], flat)[0].astype(np.float64)
+    flat = FrameParams(base=params.base, slopes=params.slopes, anchor=0.0, crosstalk=params.crosstalk,
+                       bounds=params.bounds)
+    density = balanced_density(np.asarray(picks, np.float32)[None], flat)[0].astype(np.float64)
+    gap = PICK_TONE_GAP if params.bounds is None else PICK_TONE_GAP_PRINT
     green = density[:, 1]
     out = []
     for c in (0, 2):
         channel = density[:, c]
         slope = 1.0
-        if len(picks) >= 2 and np.ptp(green) >= PICK_TONE_GAP and np.ptp(channel) > 1e-3:
+        if len(picks) >= 2 and np.ptp(green) >= gap and np.ptp(channel) > 1e-3:
             slope = float(np.clip(np.polyfit(channel, green, 1)[0], *PICK_TILT_LIMITS))
         out += [slope, float(np.mean(green - slope * channel))]
     return tuple(out)
@@ -417,25 +419,30 @@ METER_STRENGTHS = {"frame": 1.0, "balanced": 0.5, "roll": 0.0}   # how much Auto
 def frame_params(stats: FrameStats, roll: RollModel, film=None, auto_print: bool = False,
                  meter: float = 1.0, grey_picks=None) -> FrameParams:
     """``film`` (a FilmProfile) replaces the estimated dye slopes and contrast by measured ones.
-    ``auto_print`` sets black, white and contrast (see ``auto_print_levels``); ``meter`` says how much
-    they follow the frame (1) or the whole roll (0: one print setting for the roll, like a lab's lock)."""
-    params = _frame_params(stats, roll, film, meter if auto_print else None)
+    ``auto_print`` normalizes each channel between its shadow and highlight ends; ``meter`` says how much
+    those ends follow the frame (1) or the whole roll (0: one print setting for the roll, like a lab's lock)."""
+    params = _frame_params(stats, roll, film)
+    if auto_print and stats.samples is not None and len(stats.samples) >= 100:
+        luma, colour, _ = print_ends(stats.samples, params, film is not None or params.mono)
+        if roll.luma_ends is not None and meter < 1.0 and not params.mono:
+            # exposure and contrast (brightness ends) and colour (channel ends) are blended with the roll's:
+            # the roll's colour is the median of its frames, so one strongly coloured frame cannot tint it
+            luma = roll.luma_ends + meter * (luma - roll.luma_ends)
+            colour = roll.colour_ends                    # colour belongs to the film: always the roll's
+        params.bounds = luma[:, None] + colour
+        params.print_paper = True
     if grey_picks and len(grey_picks) >= 2 and not params.mono:
         params.balance = grey_balance(grey_picks, params)
-    if auto_print:
-        params.print_gain, params.print_offset, params.print_gain_low, params.print_pivot = \
-            auto_print_levels(stats, params, roll, meter)
-        params.print_paper = True
     return params
 
 
-def _frame_params(stats: FrameStats, roll: RollModel, film=None, meter: float | None = None) -> FrameParams:
+def _frame_params(stats: FrameStats, roll: RollModel, film=None) -> FrameParams:
     base = frame_base(stats, roll.base)
     own = _percentile_from_hist(stats.hist[1], 50) + float(np.log10(base[1]))   # median density above base
     if stats.mono:  # no roll colour model for silver images: neutral by construction, own exposure
         return FrameParams(base=np.asarray(base, np.float32), slopes=np.ones(3, np.float32),
                            anchor=float(own), mono=True)
-    pull = METER_PULL if meter is None else meter       # Auto print: the meter choice owns the exposure
+    pull = METER_PULL
     anchor = roll.meter + pull * (own - roll.meter)
     if film is not None:
         if stats.samples is not None:
@@ -447,8 +454,10 @@ def _frame_params(stats: FrameStats, roll: RollModel, film=None, meter: float | 
 
 
 # ----------------------------------------------------------------------------- rendering
-def scene_log_exposure(values: np.ndarray, params: FrameParams) -> np.ndarray:
-    """log10 of relative scene exposure per channel (0 = mid grey)."""
+def balanced_density(values: np.ndarray, params: FrameParams) -> np.ndarray:
+    """Density above the film base per channel, dye crosstalk unmixed (film profile) and scaled by the dye
+    slopes, so a neutral grey has (about) equal values. With Auto print it is then normalized to the print
+    range: 0 = shadow end, 1 = highlight end of each channel."""
     v = np.asarray(values, dtype=np.float32)
     out = np.empty(v.shape, np.float32)
     for c in range(3):
@@ -463,25 +472,33 @@ def scene_log_exposure(values: np.ndarray, params: FrameParams) -> np.ndarray:
     for c in range(3):
         plane = out[..., c]
         plane *= -params.slopes[c]                     # green-equivalent density
-        if params.balance is not None and c != 1:      # grey picks: tilt and offset of R and B against G
-            plane *= np.float32(params.balance[c])
-            plane += np.float32(params.balance[c + 1])
-        plane -= params.anchor
-        plane /= params.gamma
+        if params.bounds is not None:
+            plane -= np.float32(params.bounds[0][c])
+            plane /= np.float32(max(params.bounds[1][c] - params.bounds[0][c], 1e-3))
+    return out
+
+
+def scene_log_exposure(values: np.ndarray, params: FrameParams) -> np.ndarray:
+    """log10 of relative exposure per channel (0 = mid grey): the scene's for the flat master, the print's
+    with Auto print."""
+    out = balanced_density(values, params)
+    if params.balance is not None:                     # grey picks: tilt and offset of R and B against G
+        for c in (0, 2):
+            out[..., c] *= np.float32(params.balance[c])
+            out[..., c] += np.float32(params.balance[c + 1])
     if params.mono:  # silver is neutral: one density for all channels
         out[...] = out.mean(-1, keepdims=True)
-    if params.print_gain != 1.0 or params.print_offset != 0.0 or params.print_gain_low is not None:
-        # the grade acts on brightness (split: one contrast for the shadows, one for the highlights,
-        # joined smoothly at the middle tone); colour differences are stretched at most
-        # PRINT_CHROMA_MAX, so a thin negative printed hard does not turn garish. Greys stay grey.
-        luma = (out @ PRINT_LUMA)[..., None]
-        high = np.float32(params.print_gain)
-        low = np.float32(params.print_gain if params.print_gain_low is None else params.print_gain_low)
-        chroma = min(0.5 * (float(high) + float(low)), PRINT_CHROMA_MAX)
-        out -= luma
-        out *= np.float32(chroma)
-        z = luma - np.float32(params.print_pivot)
-        out += np.float32(params.print_offset) + low * z + (high - low) * _softplus(z, PRINT_JOIN)
+    if params.bounds is not None:
+        # Auto print tone: the normalized density is shown through a 1/1.4 power as display value (the
+        # Classic engine's rendering, which keeps open shadows and bright mid-tones), here with the same
+        # ends for a neutral grey in the three channels. Expressed as log exposure for the printer lights.
+        np.clip(out, 1e-4, 4.0, out=out)
+        np.power(out, np.float32(1.0 / PRINT_POWER), out=out)
+        linear = np.where(out <= 0.04045, out / 12.92, np.power((out + 0.055) / 1.055, 2.4)).astype(np.float32)
+        out = np.log10(linear / MID_GREY)
+    else:
+        out -= np.float32(params.anchor)
+        out /= np.float32(params.gamma)
     # far beyond white there is no picture (opaque holder, mask): its channels differ only because the
     # film base does, which would print as a strong false colour. Colour fades to neutral there.
     luma = (out @ PRINT_LUMA)[..., None]
@@ -496,47 +513,26 @@ def scene_log_exposure(values: np.ndarray, params: FrameParams) -> np.ndarray:
 PAPER_WHITE = float(np.log10(0.90 / 0.18))     # paper white (L* ~96), log10 relative to mid grey
 PAPER_BLACK = float(np.log10(0.004 / 0.18))    # paper black (Dmax ~2.4, L* ~3.6)
 PAPER_SHOULDER, PAPER_TOE = 6.0, 6.0           # knee sharpness (per decade)
-PRINT_MID = 0.08                                # middle tone prints a little above mid grey (L* ~54)
 BEYOND_WHITE = (PAPER_WHITE + 0.15, PAPER_WHITE + 0.55)   # log exposure where colour fades to neutral
 PRINT_ENDS = (0.5, 99.5)      # film-pixel percentiles taken as shadow and highlight ends
-PRINT_GAIN_LIMITS = (0.25, 8.0)
-PRINT_CHROMA_MAX = 1.5        # colour differences are stretched at most this much by the print grade
+PRINT_POWER = 1.4             # display value = normalized density ** (1 / 1.4), as in the Classic engine
 PRINT_LUMA = np.array([0.25, 0.5, 0.25], np.float32)
-PRINT_JOIN = 8.0              # sharpness of the join between shadow and highlight grades (per decade)
-PRINT_SPLIT_LIMIT = 6.0       # shadow and highlight grades differ at most by this factor
-PRINT_PIVOT = 0.33            # the middle tone is taken a third of the way up the frame's range
 
 
-def auto_print_levels(stats: FrameStats, params: FrameParams, roll: RollModel | None = None,
-                      meter: float = 1.0) -> tuple[float, float, float, float]:
-    """Auto print, like a lab printer's automatic exposure and contrast but neutral: one exposure and one
-    contrast grade for the three channels, so greys stay grey and colours stay tied to the film base.
+def print_ends(samples: np.ndarray, params: FrameParams, shared: bool):
+    """Shadow and highlight ends (0.5 / 99.5 % of the film pixels) of balanced density.
 
-    The frame's middle tone is taken a third of the way up its range (0.5 / 99.5 % of the film pixels):
-    this follows the picture (a dark wall stays dark, a sunlit wall stays light), where a median would
-    turn any large area into mid grey. It prints slightly above mid grey (PRINT_MID). A highlight grade
-    brings the
-    lightest film tone (99.5 %) to paper white and a shadow grade brings the darkest (0.5 %) to paper
-    black (holder and bare light excluded); the paper curve rolls both ends off softly.
-    Returns (highlight gain, offset, shadow gain, pivot)."""
-    if stats.samples is None or len(stats.samples) < 100:
-        return 1.0, PRINT_MID, 1.0, 0.0
-    flat = FrameParams(base=params.base, slopes=params.slopes, anchor=params.anchor, gamma=params.gamma,
-                       mono=params.mono, crosstalk=params.crosstalk, balance=params.balance)
-    values = np.power(np.float32(10.0), -stats.samples)[None]           # samples are absolute densities
-    level = (scene_log_exposure(values, flat)[0] @ PRINT_LUMA)
-    low, high = np.percentile(level, PRINT_ENDS)
-    if roll is not None and roll.print_low is not None and meter < 1.0 and not params.mono:
-        # blend the frame's range with the roll's: the same tone then prints the same in every frame,
-        # whatever else is in the picture (at meter 0 exactly)
-        shift = params.anchor / params.gamma
-        low = (roll.print_low - shift) + meter * (low - (roll.print_low - shift))
-        high = (roll.print_high - shift) + meter * (high - (roll.print_high - shift))
-    middle = low + PRINT_PIVOT * (high - low)
-    gain_high = float(np.clip((PAPER_WHITE - PRINT_MID) / max(high - middle, 1e-3), *PRINT_GAIN_LIMITS))
-    gain_low = float(np.clip((PRINT_MID - PAPER_BLACK) / max(middle - low, 1e-3), *PRINT_GAIN_LIMITS))
-    gain_low = float(np.clip(gain_low, gain_high / PRINT_SPLIT_LIMIT, gain_high * PRINT_SPLIT_LIMIT))
-    return gain_high, PRINT_MID, gain_low, float(middle)
+    Returns (brightness ends (2,), each channel's ends relative to them (2, 3), the densities' luma).
+    The per-channel part also absorbs what a single film base cannot: a slightly different minimum density
+    in each layer and scanner flare, which otherwise tint the highlights. ``shared`` (film profile, B&W)
+    trusts the measured balance: no per-channel part."""
+    flat = FrameParams(base=params.base, slopes=params.slopes, anchor=0.0, crosstalk=params.crosstalk)
+    density = balanced_density(np.power(np.float32(10.0), -samples)[None], flat)[0]
+    luma = density @ PRINT_LUMA
+    luma_ends = np.percentile(luma, PRINT_ENDS).astype(np.float64)
+    if shared:
+        return luma_ends, np.zeros((2, 3)), luma
+    return luma_ends, np.percentile(density, PRINT_ENDS, axis=0) - luma_ends[:, None], luma
 
 
 def _softplus(z, sharpness):
@@ -564,9 +560,8 @@ def srgb_encode(linear: np.ndarray) -> np.ndarray:
 
 def _tone(lin: np.ndarray, shoulder: float, toe: float, paper: bool = False) -> np.ndarray:
     lin = np.maximum(lin, 0)
-    if paper:                         # Auto print: the paper curve owns both ends
-        y = paper_curve(np.log10(np.maximum(lin, 1e-9) / MID_GREY))
-        return (MID_GREY * np.power(10.0, y)).astype(np.float32)
+    if paper:                         # Auto print: already toned; the ends clip like a print's black and white
+        return np.minimum(lin, 1.0)
     if toe:
         lin = lin + toe * (1 - lin)
     return _shoulder(lin, shoulder)

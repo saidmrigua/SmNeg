@@ -503,8 +503,8 @@ class SMnegWindow(QMainWindow):
         if values is not item.base_positive:
             return sc.scene_log_exposure(values, params)
         key = (id(values), params.base.tobytes(), params.slopes.tobytes(), params.anchor, params.mono, params.gamma,
-               None if params.crosstalk is None else params.crosstalk.tobytes(), params.print_gain,
-               params.print_gain_low, params.print_offset, params.print_pivot, params.balance)
+               None if params.crosstalk is None else params.crosstalk.tobytes(),
+               params.balance, None if params.bounds is None else params.bounds.tobytes())
         hit = self._log_cache.get(id(item))
         if hit is not None and hit[0] == key:
             self._log_cache.move_to_end(id(item))

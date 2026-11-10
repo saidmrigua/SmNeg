@@ -217,16 +217,14 @@ def test_a_colourless_colour_negative_is_not_taken_for_black_and_white():
 def test_auto_print_fills_the_paper_and_keeps_greys_neutral(portra):
     photos, _, stats, model = portra
     for (raw, boxes), s in list(zip(photos, stats))[::3]:
-        flat = sc.frame_params(s, model)
-        printed = sc.frame_params(s, model, auto_print=True)
-        assert printed.print_paper and printed.print_gain > 0
+        printed = sc.frame_params(s, model, auto_print=True, meter=sc.METER_STRENGTHS["balanced"])
+        assert printed.print_paper and printed.bounds is not None
         out = sc.render(raw, printed, output_float=True).astype(np.float64)
         lab = srgb_to_lab(out[::4, ::4].reshape(-1, 3))
-        low, high = np.percentile(lab[:, 0], [1, 99.7])                 # the lightest 0.5 % go to white
-        assert low < 12 and high > 68                                   # black to (soft) white, like a print
+        low, high = np.percentile(lab[:, 0], [1, 99.7])
+        assert low < 15 and high > 55            # black to white; a low-key frame stays a little darker
         wedge = patch_lab(out, boxes)
-        flat_wedge = grey_lab(raw, flat, boxes)
-        assert np.hypot(wedge[:, 1], wedge[:, 2]).mean() < np.hypot(flat_wedge[:, 1], flat_wedge[:, 2]).mean() * 1.6 + 0.5
+        assert np.hypot(wedge[:, 1], wedge[:, 2]).mean() < 2.0          # measured 0.5 (Classic: 2.7)
         assert np.all(np.diff(wedge[:, 0]) < 0.5)                       # the grey scale stays in order
 
 

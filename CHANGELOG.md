@@ -23,8 +23,10 @@ Answer to the community's IT8 test of 0.1.0 (see `AUDIT_REPORT.md`): a new, meas
   areas at an edge (sky, wall) are no longer taken for the film base.
 - **Grey picker** (`N`) and **film-base picker** (`B`, `⇧B` = automatic) in the enlarged view; work at any
   rotation, crop, straightening or zoom. The picked base is saved with the session and used by the roll.
-- **Auto print** (Scientific engine, on by default, `L`): automatic neutral print exposure and contrast
-  per frame (split grade + paper toe/shoulder), black to white like a lab printer; off = flat master.
+- **Auto print** (Scientific engine, on by default, `L`): the Classic rendering (open shadows, bright
+  mid-tones) with the roll's colour: each channel is normalized between its shadow and highlight ends, and
+  the colour part of those ends is the median of the roll's frames; off = flat master. The film holder,
+  sprocket holes and bare light are kept out of the statistics.
 - **Several grey picks** (`N` again on a lighter or darker grey, `⇧N` clears): also corrects the tilt
   between the dye layers, i.e. casts in the highlights or shadows.
 - **Roll balance**: save the dye balance measured on a full roll as a film profile and reuse it on short

@@ -166,7 +166,7 @@ def test_grey_pick_neutralizes_the_clicked_patch(gui, tmp_path):
     widget.pick_kind = 'grey'
     widget.on_point_picked((c + d) / 2 / 450, (a + b) / 2 / 300)
     after = srgb_to_lab(widget.render_item(item)[a:b, c:d].reshape(-1, 3).mean(0) / 255)
-    assert np.hypot(after[1], after[2]) < 1.0 <= np.hypot(before[1], before[2])
+    assert np.hypot(after[1], after[2]) < 2.0 < np.hypot(before[1], before[2])   # keys are whole points
     widget.undo()
     assert (item.cyan, item.yellow) == (7, -6)
 
