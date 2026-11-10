@@ -38,6 +38,8 @@ BIN_WIDTH = 0.005                  # density histogram resolution
 N_BINS = 1000                      # 0 .. 5.0 absolute density
 SATURATED = 0.95                   # linear value treated as clipped
 MAX_DENSITY_ABOVE_BASE = 2.8       # denser than this: holder / tape, not image
+DENSE = 1.0                        # green density above base from which the holder test applies
+METER_WINDOW = (0.2, 0.8)          # statistics come from the centre of the scan (rebate, holes and holder are at the edges)
 METER_PULL = 0.7                   # 1 = full per-frame auto exposure, 0 = roll exposure only
 SLOPE_QUANTILES = (80.0, 98.0)
 SAMPLE_COUNT = 20000               # film pixels kept per frame for metering with a film profile     # density quantiles used for the dye-gamma ratios
@@ -243,6 +245,9 @@ def film_mask(values: np.ndarray, base: np.ndarray, mono: bool = False) -> np.nd
         base_orange = np.log10(base[2]) - np.log10(base[0])
         orange = np.log10(np.clip(v[..., 2], 1e-5, None)) - np.log10(np.clip(v[..., 0], 1e-5, None))
         ok &= orange < base_orange + 0.35
+        # dense film is more orange than the base (the blue layer is the densest); a dense pixel that is
+        # less orange is the opaque holder or mask, whose three channels all sit at the sensor's floor
+        ok &= ~((above[..., 1] > DENSE) & (orange > base_orange + 0.10))
     return ok
 
 
@@ -254,7 +259,8 @@ def frame_stats(values: np.ndarray, light: np.ndarray | None = None) -> FrameSta
     # a frame with little colour (a sky, fog) is not B&W when its film base carries the orange mask
     mono = is_monochrome(values) and float(np.log10(base[2]) - np.log10(base[0])) > ORANGE_MASK
     h, w = values.shape[:2]
-    inner = np.asarray(values[int(h * 0.1):max(int(h * 0.9), 1), int(w * 0.1):max(int(w * 0.9), 1)],
+    lo, hi = METER_WINDOW
+    inner = np.asarray(values[int(h * lo):max(int(h * hi), 1), int(w * lo):max(int(w * hi), 1)],
                        dtype=np.float32).reshape(-1, 3)
     dabs = -np.log10(np.clip(inner, 1e-5, None))
     film = film_mask(inner, base, mono)
@@ -476,6 +482,13 @@ def scene_log_exposure(values: np.ndarray, params: FrameParams) -> np.ndarray:
         out *= np.float32(chroma)
         z = luma - np.float32(params.print_pivot)
         out += np.float32(params.print_offset) + low * z + (high - low) * _softplus(z, PRINT_JOIN)
+    # far beyond white there is no picture (opaque holder, mask): its channels differ only because the
+    # film base does, which would print as a strong false colour. Colour fades to neutral there.
+    luma = (out @ PRINT_LUMA)[..., None]
+    keep = np.clip((BEYOND_WHITE[1] - luma) / (BEYOND_WHITE[1] - BEYOND_WHITE[0]), 0.0, 1.0)
+    out -= luma
+    out *= keep
+    out += luma
     return out
 
 
@@ -484,6 +497,7 @@ PAPER_WHITE = float(np.log10(0.90 / 0.18))     # paper white (L* ~96), log10 rel
 PAPER_BLACK = float(np.log10(0.004 / 0.18))    # paper black (Dmax ~2.4, L* ~3.6)
 PAPER_SHOULDER, PAPER_TOE = 6.0, 6.0           # knee sharpness (per decade)
 PRINT_MID = 0.08                                # middle tone prints a little above mid grey (L* ~54)
+BEYOND_WHITE = (PAPER_WHITE + 0.15, PAPER_WHITE + 0.55)   # log exposure where colour fades to neutral
 PRINT_ENDS = (0.5, 99.5)      # film-pixel percentiles taken as shadow and highlight ends
 PRINT_GAIN_LIMITS = (0.25, 8.0)
 PRINT_CHROMA_MAX = 1.5        # colour differences are stretched at most this much by the print grade
