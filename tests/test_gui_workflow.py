@@ -71,3 +71,57 @@ def test_crop_tiff_export(gui, tmp_path):
     with tifffile.TiffFile(output) as image:
         assert image.pages[0].dtype == np.uint16
         assert b"Said Mrigua" in image.pages[0].tags["XMP"].value
+
+
+def test_auto_crop_key_keeps_a_manual_crop(gui, tmp_path):
+    base = np.random.default_rng(4).random((80, 120, 3), dtype=np.float32)
+    crop = (0.125, 0.25, 0.625, 0.875)
+    item = FrameItem(0, str(tmp_path / "negative.tif"), base, manual_crop=crop)
+    gui.items = [item]
+    gui.refresh_current_view()
+    before = gui.render_item(item)
+    gui.toggle_auto_crop()
+    assert item.manual_crop == crop and not item.auto_crop
+    np.testing.assert_array_equal(gui.render_item(item), before)
+    assert "manual crop" in gui.statusBar().currentMessage()
+    item.manual_crop = None
+    gui.toggle_auto_crop()
+    assert item.auto_crop
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_mirror_flips_left_to_right_as_seen(gui, tmp_path, rotation):
+    base = np.random.default_rng(6).random((80, 120, 3), dtype=np.float32)
+    item = FrameItem(0, str(tmp_path / "negative.tif"), base, manual_crop=(0.125, 0.25, 0.625, 0.875))
+    gui.items = [item]
+    gui.refresh_current_view()
+    gui.set_orientation(item, rotation, False)
+    before = gui.render_item(item)
+    gui.toggle_mirror()
+    np.testing.assert_array_equal(gui.render_item(item), np.fliplr(before))
+    gui.toggle_mirror()
+    np.testing.assert_array_equal(gui.render_item(item), before)
+    gui.undo()
+    gui.undo()
+    assert (item.rotation, item.mirror) == (rotation, False)
+
+
+def test_windows_are_srgb():
+    from PySide6.QtGui import QColorSpace, QSurfaceFormat
+    from smneg.app import use_srgb_windows
+    saved = QSurfaceFormat.defaultFormat()
+    try:
+        use_srgb_windows()
+        assert QSurfaceFormat.defaultFormat().colorSpace() == QColorSpace(QColorSpace.NamedColorSpace.SRgb)
+    finally:
+        QSurfaceFormat.setDefaultFormat(saved)
+
+
+def test_jpeg_export_says_srgb_in_exif_and_icc(tmp_path):
+    from PIL import Image
+    from smneg.export import SRGB_ICC
+    path = tmp_path / "out.jpg"
+    save_image(path, np.full((20, 30, 3), 128, np.uint8))
+    with Image.open(path) as image:
+        assert image.getexif().get_ifd(0x8769).get(0xA001) == 1
+        assert image.info["icc_profile"] == SRGB_ICC

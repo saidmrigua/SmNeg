@@ -21,7 +21,9 @@ flowchart LR
 Camera RAW files (Nikon, Fujifilm, DNG, Canon, Sony and the other formats LibRaw reads) are decoded with LibRaw (through `rawpy`) as **linear 16-bit data with no
 white balance, no auto brightness and no color conversion**, so the orange mask of a color negative is kept
 and the inversion works on real sensor values. JPEG and PNG sources, and 8-bit TIFF, are read with Pillow and treated as
-sRGB-encoded (the Scientific engine linearizes them); 16-bit TIFF is decoded as linear data without reducing it to 8 bits. Previews use a
+sRGB-encoded (the Scientific engine linearizes them); 16-bit TIFF is decoded as linear data without reducing it to 8 bits. An ICC profile
+embedded in the file takes precedence: the Scientific engine undoes its tone curve (gamma 2.2, sRGB, linear …), not its
+colours, so a gamma-encoded 16-bit scanner TIFF or an Adobe RGB JPEG is linearized correctly. Previews use a
 half-size decode (at most 1600 px); full resolution is only decoded for export and for 100 % zoom.
 
 ## 2. Flat-field (optional)
@@ -72,7 +74,9 @@ Each step has a physical meaning and is measured, not guessed:
    (for example Provia, made with `it8_profiler`) describes the scanning set-up: camera sensor + light
    source. Its matrix (camera RGB → XYZ D50) is converted to camera RGB → linear sRGB and scaled so that
    equal channels stay neutral. It is applied in linear light after the inversion, so greys are kept and
-   only hues and saturation are corrected. Above white (film holder, sprocket holes) colour fades to
+   only hues and saturation are corrected. With Auto print the values are already toned (not linear), so
+   they are taken back to scene exposure for the matrix and toned again: the same colour gets the same
+   correction at every brightness. Above white (film holder, sprocket holes) colour fades to
    neutral first, so the matrix cannot create false colours there. The profile is valid only for the
    camera + light it was measured with, and it does not calibrate the film.
 8. **Film profile (optional, `FILM` button).** Calibrated from a ColorChecker 24 photographed on the

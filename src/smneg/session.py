@@ -42,6 +42,19 @@ def _is_rgb(value):
             and all(_is_number(v) and math.isfinite(v) and 0 < v <= 2 for v in value))
 
 
+def _is_print_lock(value):
+    """Print settings pasted from another frame: see FrameItem.print_lock."""
+    def numbers(item, count):
+        return (isinstance(item, (list, tuple)) and len(item) == count
+                and all(_is_number(v) and math.isfinite(v) for v in item))
+    if not isinstance(value, dict) or not _is_number(value.get("anchor")) or not math.isfinite(value["anchor"]):
+        return False
+    bounds, balance = value.get("bounds"), value.get("balance")
+    return ((bounds is None or (isinstance(bounds, (list, tuple)) and len(bounds) == 2
+                                and all(numbers(row, 3) for row in bounds)))
+            and (balance is None or numbers(balance, 4)))
+
+
 def validate_session(data):
     """Check the structure and types of a session before it is used; raises ValueError with a clear message.
     Unknown keys are ignored so that newer files still open."""
@@ -65,6 +78,8 @@ def validate_session(data):
         picks = frame.get("grey_picks")
         _check(picks is None or (isinstance(picks, list) and len(picks) <= 8 and all(map(_is_rgb, picks))),
                f'frame {number}: "grey_picks" must be a short list of RGB values')
+        lock = frame.get("print_lock")
+        _check(lock is None or _is_print_lock(lock), f'frame {number}: "print_lock" is not valid')
         crop = frame.get("manual_crop")
         _check(crop is None or (isinstance(crop, (list, tuple)) and len(crop) == 4 and all(map(_is_number, crop))),
                f'frame {number}: "manual_crop" must be four numbers')

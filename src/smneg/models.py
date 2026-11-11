@@ -36,5 +36,9 @@ class FrameItem:
     # grey picks (linear scan RGB of areas that should be neutral); two or more at different tones also
     # correct the tilt between the dye layers (cast in the highlights or shadows)
     grey_picks: list | None = None
+    # print settings pasted from another frame (scientific engine), so this frame is printed exactly like
+    # it: {"anchor": density of mid grey, "bounds": Auto print's ends or None, "balance": grey balance or
+    # None}. None = the frame's own metering.
+    print_lock: dict | None = None
     # scientific engine: film-base / density statistics of the preview (not saved, recomputed on load)
     stats: object = field(default=None, repr=False, compare=False)

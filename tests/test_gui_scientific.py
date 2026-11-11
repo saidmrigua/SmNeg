@@ -388,7 +388,44 @@ def test_two_grey_picks_remove_the_cast_from_highlights_to_shadows(gui, tmp_path
     widget.undo()
     assert len(item.grey_picks) == 1
     widget.redo()
+    widget.adjust_color('C', 3)                          # a trim by hand after the picks...
+    click(9)
+    assert len(item.grey_picks) == 3 and item.cyan == item.magenta + 3     # ...is kept by the next pick
     widget.clear_grey_picks()
     assert item.grey_picks is None and (item.cyan, item.yellow) == (item.magenta, item.magenta)
     with pytest.raises(ValueError):
         session.validate_session({'frames': [{'path': 'x', 'grey_picks': [[0.2, 0.3]]}]})
+
+
+def test_paste_prints_the_frame_like_the_copied_one(gui, tmp_path, monkeypatch):
+    _, widget = gui
+    monkeypatch.setattr(window.QMessageBox, 'information', lambda *args, **kwargs: None)
+    for path in _synthetic_negatives(tmp_path, 3):
+        assert widget.import_frame(str(path))
+    widget.session_folder = tmp_path
+    source, target = widget.items[0], widget.items[2]
+    widget.switch_to_large_view(0)
+    widget.adjust_color('C', 2)
+    widget.adjust_density(3)
+    own = widget.frame_params(target)
+    wanted = widget.frame_params(source)
+    assert not np.allclose(own.bounds, wanted.bounds)                  # each frame is metered on its own
+    widget.copy_settings()
+    widget.current_idx = 2
+    before = widget.render_item(target).copy()
+    widget.paste_settings()
+    pasted = widget.frame_params(target)
+    np.testing.assert_allclose(pasted.bounds, wanted.bounds)           # same print: exposure, contrast, colour
+    assert pasted.anchor == wanted.anchor and (target.cyan, target.density) == (2, 3)
+    assert 'Matched' in widget.lbl_info.text() and not np.array_equal(before, widget.render_item(target))
+    assert widget.persist_project()
+    assert session.read_project(tmp_path)['frames'][2]['print_lock']['bounds'] == target.print_lock['bounds']
+    widget.release_print_lock()
+    np.testing.assert_allclose(widget.frame_params(target).bounds, own.bounds)
+    widget.undo()
+    assert target.print_lock is not None
+    widget.undo()                                                      # the paste itself
+    assert target.print_lock is None and target.cyan == 0
+    np.testing.assert_array_equal(before, widget.render_item(target))
+    with pytest.raises(ValueError):
+        session.validate_session({'frames': [{'path': 'x', 'print_lock': {'anchor': 'a'}}]})

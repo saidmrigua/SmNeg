@@ -8,6 +8,7 @@ root = Path(SPECPATH).parent
 assets = root / "src" / "smneg" / "assets"
 icon = str(assets / ("icon.icns" if sys.platform == "darwin" else "icon.ico"))
 version = "0.2.0"
+version_numbers = tuple(int(part) for part in (version.split(".") + ["0"] * 4)[:4])   # Windows file version
 
 analysis = Analysis(
     [str(root / "packaging" / "launcher.py")],
@@ -26,7 +27,7 @@ if sys.platform == "win32":
         VarFileInfo, VarStruct, VSVersionInfo,
     )
     version_info = VSVersionInfo(
-        ffi=FixedFileInfo(filevers=(0, 1, 0, 0), prodvers=(0, 1, 0, 0),
+        ffi=FixedFileInfo(filevers=version_numbers, prodvers=version_numbers,
                           mask=0x3f, flags=0, OS=0x40004, fileType=1, subtype=0, date=(0, 0)),
         kids=[StringFileInfo([StringTable("040904B0", [
             StringStruct("CompanyName", "Said Mrigua"),
@@ -45,6 +46,7 @@ if sys.platform == "darwin":
         collected, name="SMneg.app", icon=icon, bundle_identifier="com.saidmrigua.smneg",
         info_plist={
             "CFBundleShortVersionString": version,
+            "CFBundleVersion": version,
             "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "Copyright 2026 Said Mrigua",
         },

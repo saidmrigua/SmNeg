@@ -29,7 +29,7 @@ import cv2
 import numpy as np
 
 from .engine import OfficialFilmEngine, decode_negative
-from .flat_field import apply_flat_field
+from .flat_field import RAW_EXTENSIONS, apply_flat_field
 
 POINT = 0.025                      # log10 exposure per printer point (1/12 stop)
 FILM_GAMMA = 0.60                  # typical C-41 green gamma in camera RGB
@@ -91,8 +91,9 @@ DISPLAY_ENCODED = {".jpg", ".jpeg", ".png"}
 
 
 def is_display_encoded(path: str) -> bool:
-    """JPEG, PNG and 8-bit TIFF scans hold sRGB-encoded values, not linear light (as NegPy and most
-    tools assume for untagged 8-bit files). 16-bit TIFF and RAW are linear."""
+    """Without an ICC profile: JPEG, PNG and 8-bit TIFF scans hold sRGB-encoded values, not linear light (as
+    NegPy and most tools assume for untagged 8-bit files); 16-bit TIFF and RAW are linear. A profile in the
+    file takes precedence (``input_transfer``)."""
     ext = Path(path).suffix.lower()
     if ext in DISPLAY_ENCODED:
         return True
@@ -111,13 +112,85 @@ def srgb_decode(values: np.ndarray) -> np.ndarray:
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
 
+TRANSFER_STEPS = 65535     # look-up table size - 1: exact for 8-bit and 16-bit files
+
+
+def icc_transfer(profile: bytes) -> np.ndarray | None:
+    """Tone curve of an ICC profile (its green, or grey, TRC tag) as a table: encoded value -> linear light.
+
+    Only the encoding is undone, never the colours: a scan of a negative is not a picture in that colour
+    space. None for profiles without a simple curve (look-up-table scanner profiles) or unreadable data."""
+    import struct
+    try:
+        count = struct.unpack(">I", profile[128:132])[0]
+        tags = {profile[132 + 12 * i:136 + 12 * i]: struct.unpack(">II", profile[136 + 12 * i:144 + 12 * i])
+                for i in range(count)}
+        offset, size = tags.get(b"gTRC") or tags[b"kTRC"]
+        data = profile[offset:offset + size]
+        x = np.arange(TRANSFER_STEPS + 1, dtype=np.float64) / TRANSFER_STEPS
+        kind = data[:4]
+        if kind == b"curv":
+            entries = struct.unpack(">I", data[8:12])[0]
+            if entries == 0:
+                y = x
+            elif entries == 1:
+                y = x ** (struct.unpack(">H", data[12:14])[0] / 256.0)
+            else:
+                table = np.frombuffer(data[12:12 + 2 * entries], dtype=">u2").astype(np.float64) / 65535.0
+                y = np.interp(x, np.linspace(0.0, 1.0, entries), table)
+        elif kind == b"para":
+            function = struct.unpack(">H", data[8:10])[0]
+            needed = (1, 3, 4, 5, 7)[function]
+            g, a, b, c, d, e, f = (list(np.frombuffer(data[12:12 + 4 * needed], dtype=">i4") / 65536.0) + [0.0] * 6)[:7]
+            if function == 0:
+                y = x ** g
+            else:
+                if function in (1, 2):                 # no linear part: zero (or c) below -b/a
+                    limit, low = -b / a, np.full_like(x, c if function == 2 else 0.0)
+                    high = np.maximum(a * x + b, 0) ** g + (c if function == 2 else 0.0)
+                else:
+                    limit, low = d, c * x + (f if function == 4 else 0.0)
+                    high = np.maximum(a * x + b, 0) ** g + (e if function == 4 else 0.0)
+                y = np.where(x >= limit, high, low)
+        else:
+            return None
+        if not np.all(np.isfinite(y)) or y[-1] <= y[0]:
+            return None
+        return np.clip(y, 0.0, 1.0).astype(np.float32)
+    except Exception:
+        return None
+
+
+def input_transfer(path: str) -> np.ndarray | None:
+    """How a TIFF / JPEG / PNG scan is encoded: a table (encoded -> linear light), or None when it is linear.
+
+    An embedded ICC profile says it; without one, 8-bit files are taken as sRGB and 16-bit TIFF as linear."""
+    try:
+        from PIL import Image
+        with Image.open(path) as image:
+            profile = image.info.get("icc_profile")
+    except Exception:
+        profile = None
+    table = icc_transfer(profile) if profile else None
+    if table is None:
+        if not is_display_encoded(path):
+            return None
+        table = srgb_decode(np.arange(TRANSFER_STEPS + 1, dtype=np.float32) / TRANSFER_STEPS)
+    grid = np.arange(TRANSFER_STEPS + 1, dtype=np.float32) / TRANSFER_STEPS
+    return None if np.abs(table - grid).max() < 1e-3 else table
+
+
 def load_linear(path: str, full_resolution: bool = False, flat_field: np.ndarray | None = None):
     """Linear scan values (float32), flat-fielded. None on failure (reason in OfficialFilmEngine.errors)."""
     OfficialFilmEngine.errors.pop(path, None)
     try:
         values = decode_negative(path, full_resolution)
-        if is_display_encoded(path):
-            values = srgb_decode(values)
+        table = None if Path(path).suffix.lower() in RAW_EXTENSIONS else input_transfer(path)
+        if table is not None:
+            values = np.ascontiguousarray(values, dtype=np.float32)
+            for c in range(values.shape[-1]):          # one channel at a time: bounded memory at full size
+                index = np.rint(np.clip(values[..., c], 0.0, 1.0) * TRANSFER_STEPS).astype(np.int32)
+                values[..., c] = table[index]
         if flat_field is not None:
             values = apply_flat_field(values, flat_field)
         return np.ascontiguousarray(values, dtype=np.float32)
@@ -607,25 +680,54 @@ _LIN_CACHE: dict = {}
 _ENC_CACHE: dict = {}
 
 
-def _linear_lut(gain: float) -> np.ndarray:
-    """log exposure -> linear light (float32), same grid as the preview LUT."""
-    key = round(gain, 6)
+def print_to_scene(x: np.ndarray, scene: float) -> np.ndarray:
+    """Auto print's log exposure (a display value, already toned) -> log10 scene exposure, 0 = the print's
+    white. Undoes the print tone: display value -> normalized density (** 1.4) -> exposure (density = film
+    gamma x log exposure; ``scene`` = the print's density range / film gamma)."""
+    linear = MID_GREY * np.power(10.0, np.clip(x, -12.0, 12.0))
+    value = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.power(linear, 1 / 2.4) - 0.055)
+    return (np.clip(np.power(value, PRINT_POWER), 1e-4, 4.0) - 1.0) * scene
+
+
+def scene_to_print(y: np.ndarray, scene: float) -> np.ndarray:
+    """Inverse of ``print_to_scene``."""
+    value = np.power(np.clip(1.0 + y / scene, 1e-4, 4.0), 1.0 / PRINT_POWER)
+    linear = np.where(value <= 0.04045, value / 12.92, np.power((value + 0.055) / 1.055, 2.4))
+    return np.log10(linear / MID_GREY)
+
+
+def print_scene_range(params: FrameParams | None) -> float:
+    """log10 exposure range between Auto print's shadow and highlight ends (0 without Auto print)."""
+    if params is None or params.bounds is None:
+        return 0.0
+    bounds = np.asarray(params.bounds, np.float64)
+    # at most 5.5 decades: the look-up tables hold 6 below white
+    return float(np.clip((bounds[1] - bounds[0]) @ PRINT_LUMA / params.gamma, 0.5, 5.5))
+
+
+def _linear_lut(gain: float, scene: float = 0.0) -> np.ndarray:
+    """log exposure -> linear light (float32), same grid as the preview LUT. With ``scene`` (Auto print):
+    -> scene exposure, 1 = the print's white, without the contrast (applied after the camera matrix)."""
+    key = (round(gain, 6), round(scene, 6))
     lut = _LIN_CACHE.get(key)
     if lut is None:
         x = LUT_LOW + np.arange(10 * LUT_STEPS + 1, dtype=np.float64) / LUT_STEPS
-        lut = (MID_GREY * 10 ** (gain * x)).astype(np.float32)
+        lut = (10 ** print_to_scene(x, scene) if scene else MID_GREY * 10 ** (gain * x)).astype(np.float32)
         _LIN_CACHE.clear() if len(_LIN_CACHE) > 32 else None
         _LIN_CACHE[key] = lut
     return lut
 
 
-def _encode_lut(shoulder: float, toe: float, paper: bool = False) -> np.ndarray:
-    """log10(linear light) from -6 to +2 -> sRGB 8-bit through the tone shoulder."""
-    key = (shoulder, toe, bool(paper))
+def _encode_lut(shoulder: float, toe: float, paper: bool = False, gain: float = 1.0, scene: float = 0.0) -> np.ndarray:
+    """log10(linear light) from -6 to +2 -> sRGB 8-bit through the tone shoulder. With ``scene`` (Auto
+    print) the input is log10 scene exposure: back through the print tone, then the contrast."""
+    key = (shoulder, toe, bool(paper), round(gain, 6) if scene else 1.0, round(scene, 6))
     lut = _ENC_CACHE.get(key)
     if lut is None:
         y = LUT_LOW + np.arange(8 * LUT_STEPS + 1, dtype=np.float64) / LUT_STEPS
-        lut = np.rint(srgb_encode(_tone(10 ** y, shoulder, toe, paper)) * 255).astype(np.uint8)
+        linear = MID_GREY * 10 ** (gain * scene_to_print(y, scene)) if scene else 10 ** y
+        lut = np.rint(srgb_encode(_tone(linear, shoulder, toe, paper)) * 255).astype(np.uint8)
+        _ENC_CACHE.clear() if len(_ENC_CACHE) > 32 else None
         _ENC_CACHE[key] = lut
     return lut
 
@@ -644,11 +746,15 @@ def _neutral_above_white(lin: np.ndarray) -> np.ndarray:
 
 
 def _map_rows(log_e: np.ndarray, offsets: np.ndarray, gain: float, saturation: float, shoulder: float, paper: bool,
-              toe: float, fast: bool, matrix: np.ndarray | None, out: np.ndarray) -> None:
+              toe: float, fast: bool, matrix: np.ndarray | None, out: np.ndarray, scene: float = 0.0) -> None:
     """log exposure rows -> output rows: uint8 through look-up tables (previews) or exact float32.
 
     ``matrix`` (camera profile, linear camera-film RGB -> linear sRGB, neutral-preserving) is applied
-    in linear light, before saturation and tone."""
+    in linear light, before saturation and tone. Auto print's values are already toned (not linear): with
+    ``scene`` (its exposure range) they go back to scene exposure for the matrix, then through the print
+    tone again, so the profile corrects the same colours at every brightness."""
+    if matrix is None:
+        scene = 0.0
     if fast and matrix is None:
         lut = _preview_lut(gain, shoulder, toe, paper)
         for c in range(3):
@@ -657,25 +763,29 @@ def _map_rows(log_e: np.ndarray, offsets: np.ndarray, gain: float, saturation: f
             out[..., c] = lut[index.astype(np.int32)]
         return
     if fast:
-        linear = _linear_lut(gain)
+        linear = _linear_lut(gain, scene)
         lin = np.empty(log_e.shape, np.float32)
         for c in range(3):
             index = (log_e[..., c] + (offsets[c] - LUT_LOW)) * LUT_STEPS
             np.clip(index, 0, len(linear) - 1, out=index)
             lin[..., c] = linear[index.astype(np.int32)]
-        mixed = _neutral_above_white(lin) @ matrix.T.astype(np.float32)
+        mixed = (lin if scene else _neutral_above_white(lin)) @ matrix.T.astype(np.float32)
         np.maximum(mixed, 1e-6, out=mixed)
         np.log10(mixed, out=mixed)
         mixed -= LUT_LOW
         mixed *= LUT_STEPS
-        encode = _encode_lut(shoulder, toe, paper)
+        encode = _encode_lut(shoulder, toe, paper, gain, scene)
         np.clip(mixed, 0, len(encode) - 1, out=mixed)
         out[...] = encode[mixed.astype(np.int32)]
         return
-    x = (log_e + offsets) * np.float32(gain)
+    x = log_e + offsets
+    if scene:                                  # Auto print: camera matrix on scene exposure, then the tone again
+        mixed = np.power(np.float32(10.0), print_to_scene(x, scene).astype(np.float32)) @ matrix.T.astype(np.float32)
+        x = scene_to_print(np.log10(np.maximum(mixed, 1e-6)), scene).astype(np.float32)
+    x = x * np.float32(gain)
     np.clip(x, -12.0, 12.0, out=x)             # extreme frames (blank, clipped) stay finite
     lin = MID_GREY * np.power(np.float32(10.0), x)
-    if matrix is not None:
+    if matrix is not None and not scene:
         lin = np.maximum(_neutral_above_white(lin) @ matrix.T.astype(np.float32), 0)
     if saturation != 1.0:
         luma = lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)
@@ -722,6 +832,7 @@ def render(values: np.ndarray | None, params: FrameParams | None, *, cyan: int =
     fast = not output_float and saturation == 1.0
     paper = bool(params.print_paper) if params is not None else False
     matrix = None if camera_matrix is None or (params is not None and params.mono) else camera_matrix
+    scene = print_scene_range(params) if paper and matrix is not None else 0.0
     source = log_e if log_e is not None else values
     plane = np.empty(source.shape, np.float32 if output_float else np.uint8)
 
@@ -736,7 +847,7 @@ def render(values: np.ndarray | None, params: FrameParams | None, *, cyan: int =
         if sigma:
             chunk = chroma_denoise(chunk, sigma)
         chunk = chunk[top - first:top - first + CHUNK_ROWS]
-        _map_rows(chunk, offsets, gain, saturation, shoulder, paper, toe, fast, matrix, plane[top:top + CHUNK_ROWS])
+        _map_rows(chunk, offsets, gain, saturation, shoulder, paper, toe, fast, matrix, plane[top:top + CHUNK_ROWS], scene)
 
     starts = range(0, source.shape[0], CHUNK_ROWS)
     if source.shape[0] * source.shape[1] > PARALLEL_MIN_PIXELS:   # NumPy releases the GIL: strips run in parallel

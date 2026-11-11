@@ -33,7 +33,7 @@ On Windows, `⌘` is `Ctrl`, `⌥` is `Alt` and `⇧` is `Shift`. Press `F1` in 
 |---|---|
 | `← / →` | Rotate |
 | `M` | Mirror |
-| `C` | Auto-crop |
+| `C` | Auto-crop (not on a frame with a manual crop) |
 | `K` | Manual crop |
 | `X` | Clipping preview |
 | `P` | Pass: do not export |
@@ -62,7 +62,8 @@ On Windows, `⌘` is `Ctrl`, `⌥` is `Alt` and `⇧` is `Shift`. Press `F1` in 
 
 | Keys | Action |
 |---|---|
-| `⌘C / ⌘V` | Copy / paste settings |
+| `⌘C / ⌘V` | Copy / paste settings. In the Scientific engine the pasted frame is printed exactly like the copied one (same exposure, contrast and colour balance) |
+| `⇧⌘V` | Release pasted print settings: the frame is metered on its own again |
 | `H` | Hold: keep the settings for the next frames |
 | `⌘Z / ⇧⌘Z` | Undo / redo |
 | `⌘E` | Export |

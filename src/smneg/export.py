@@ -178,6 +178,7 @@ def save_image(path, pixels, metadata=None, *, quality=100, max_edge=0, file_for
     if max_edge:
         image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
     exif = Image.Exif()
+    exif.get_ifd(0x8769)[0xA001] = 1          # EXIF ColorSpace = sRGB, for readers that ignore ICC profiles
     if metadata is not None:
         metadata = {**metadata, "width": image.width, "height": image.height}
         for tag, key in ((270, "shoot_title"), (315, "photographer"), (33432, "copyright")):

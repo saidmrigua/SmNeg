@@ -494,9 +494,26 @@ class SMnegWindow(QMainWindow):
     def frame_params(self, item):
         stats = self.stats_for(item)
         roll = self.roll() if any(other is item for other in self.items) else None
-        return sc.frame_params(stats, roll or sc.roll_model([stats], self.film_profile), self.film_profile,
-                               auto_print=bool(getattr(item, "auto_print", True)),
-                               meter=sc.METER_STRENGTHS[self.meter], grey_picks=item.grey_picks)
+        params = sc.frame_params(stats, roll or sc.roll_model([stats], self.film_profile), self.film_profile,
+                                 auto_print=bool(getattr(item, "auto_print", True)),
+                                 meter=sc.METER_STRENGTHS[self.meter], grey_picks=item.grey_picks)
+        lock = getattr(item, "print_lock", None)
+        if lock:      # pasted from another frame: its exposure, contrast and balance instead of this frame's own
+            params.anchor = float(lock["anchor"])
+            if lock.get("bounds") is not None and params.bounds is not None:
+                params.bounds = np.asarray(lock["bounds"], np.float64)
+            if lock.get("balance") is not None and params.balance is None and not params.mono:
+                params.balance = tuple(float(v) for v in lock["balance"])
+        return params
+
+    def print_settings(self, item):
+        """The print settings a frame is rendered with, to paste on another frame (None in the Classic engine)."""
+        if self.engine != "scientific" or self.stats_for(item) is None:
+            return None
+        params = self.frame_params(item)
+        return {"anchor": float(params.anchor),
+                "bounds": None if params.bounds is None else np.asarray(params.bounds, float).tolist(),
+                "balance": None if params.balance is None else [float(v) for v in params.balance]}
 
     def log_exposure(self, item, values, params):
         """Inversion of the preview, cached for the frames on screen (keys only change the look-up)."""
@@ -659,8 +676,9 @@ class SMnegWindow(QMainWindow):
                        + ("  (limited to ±50)" if clipped else "")
                        + "  ·  N on a lighter or darker grey also corrects highlights and shadows")
         else:                    # several greys: offset and tilt of the red and blue layers (not on the keys)
-            item.grey_picks = picks
-            item.cyan = item.yellow = item.magenta
+            if len(item.grey_picks or []) < 2:      # the first pick sat on the C and Y keys: now in the balance
+                item.cyan = item.yellow = item.magenta
+            item.grey_picks = picks                 # later picks keep the keys: trims made by hand since
             balance = self.frame_params(item).balance
             self.refresh_current_view()
             tilted = balance is not None and (abs(balance[0] - 1) > 1e-6 or abs(balance[2] - 1) > 1e-6)
@@ -681,6 +699,16 @@ class SMnegWindow(QMainWindow):
         item.cyan = item.yellow = item.magenta
         self.refresh_current_view()
         self.statusBar().showMessage("Grey picks cleared", 4000)
+
+    def release_print_lock(self):
+        """Back to the frame's own metering after settings were pasted on it."""
+        item = self.current_item()
+        if item is None or not item.print_lock:
+            return
+        self.begin_edit()
+        item.print_lock = None
+        self.refresh_current_view()
+        self.statusBar().showMessage("Pasted print settings released: the frame is metered on its own again", 5000)
 
     def apply_base_pick(self, item, region):
         values = item.base_positive[region].reshape(-1, 3)
@@ -1010,6 +1038,8 @@ class SMnegWindow(QMainWindow):
             parts.append("Auto print" if item.auto_print else "Flat master")
             if item.grey_picks:
                 parts.append(f"Grey picks: {len(item.grey_picks)}")
+            if item.print_lock:
+                parts.append("Matched (pasted)")
             if self.camera_profile is not None:
                 parts.append(f"Profile: {self.camera_profile.name}")
             if self.film_profile is not None:
@@ -2022,18 +2052,21 @@ class SMnegWindow(QMainWindow):
         item = self.current_item()
         if item:
             self.begin_edit()
-            self.set_orientation(item, item.rotation, not item.mirror)
+            # the mirror is stored on the unrotated frame: on a frame turned 90 or 270 degrees it would flip
+            # top to bottom, so half a turn is added and the picture always flips left to right as seen
+            turn = 180 if item.rotation % 180 else 0
+            self.set_orientation(item, item.rotation + turn, not item.mirror)
             self.refresh_current_view()
 
     def toggle_auto_crop(self):
         item = self.current_item()
         if item:
+            if item.manual_crop is not None:      # never discard a crop the user drew
+                self.statusBar().showMessage(
+                    "This frame has a manual crop: auto-crop is not applied. Press K to change or remove it.", 6000)
+                return
             self.begin_edit()
-            if item.manual_crop is not None:
-                item.manual_crop = None
-                item.auto_crop = True
-            else:
-                item.auto_crop = not item.auto_crop
+            item.auto_crop = not item.auto_crop
             self.refresh_current_view()
 
     def toggle_clipping(self):
@@ -2117,7 +2150,11 @@ class SMnegWindow(QMainWindow):
                 "auto_print": item.auto_print,
                 "rotation": item.rotation,
                 "mirror": item.mirror,
-                "auto_crop": item.auto_crop
+                "auto_crop": item.auto_crop,
+                # Scientific engine: exposure, contrast and balance are measured on each frame, so the keys
+                # alone would not give the same picture; the measured print settings travel with them
+                "print_lock": self.print_settings(item),
+                "source": item.index,
             }
             QMessageBox.information(self, "Copied", f"Settings for frame #{item.index + 1:02d} copied.")
 
@@ -2136,6 +2173,13 @@ class SMnegWindow(QMainWindow):
             item.auto_print = self.copied_settings["auto_print"]
             self.set_orientation(item, self.copied_settings["rotation"], self.copied_settings["mirror"])
             item.auto_crop = self.copied_settings["auto_crop"]
+            lock = self.copied_settings.get("print_lock")
+            if lock is not None and self.engine == "scientific":
+                item.print_lock = copy.deepcopy(lock)
+                item.grey_picks = None          # the copied balance replaces this frame's own grey picks
+                self.statusBar().showMessage(
+                    f"Pasted: printed like frame #{self.copied_settings['source'] + 1:02d} (same exposure, contrast "
+                    "and colour)  ·  ⇧⌘V meters the frame on its own again", 8000)
             self.refresh_current_view()
 
     # ==========================================================================
@@ -2363,6 +2407,9 @@ class SMnegWindow(QMainWindow):
         # Copy / Paste Settings
         if is_cmd and k == Qt.Key.Key_C:
             self.copy_settings()
+            return
+        elif is_cmd and is_shift and k == Qt.Key.Key_V:
+            self.release_print_lock()
             return
         elif is_cmd and k == Qt.Key.Key_V:
             self.paste_settings()

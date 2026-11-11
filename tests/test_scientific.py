@@ -341,3 +341,97 @@ def test_chroma_denoise_cuts_colour_noise_and_keeps_colours():
     assert untouched.mean() < 0.002                                  # a clean image is left alone
     flat = sc.frame_params(cs, sc.roll_model([cs]))                  # the flat master is never denoised
     np.testing.assert_array_equal(sc.render(clean, flat), sc.render(clean, flat, denoise=False))
+
+
+def _print_params(density_range=1.5):
+    bounds = np.array([[0.0] * 3, [density_range] * 3])
+    return sc.FrameParams(base=np.ones(3, np.float32), slopes=np.ones(3, np.float32), anchor=0.0,
+                          bounds=bounds, print_paper=True)
+
+
+def test_camera_profile_with_auto_print_works_on_scene_exposure(tmp_path):
+    """The profile's matrix is made for linear light. Auto print's values are toned, so the matrix is
+    applied on scene exposure: the same colour at three brightness levels gets the same correction."""
+    a = sc.load_camera_profile(str(_profile_file(tmp_path))).working_matrix()
+    params = _print_params()
+    scene = sc.print_scene_range(params)
+    assert scene == pytest.approx(1.5 / sc.FILM_GAMMA)
+    colour = np.array([0.25, -0.05, -0.2])                                    # log10 exposure against grey
+    levels = np.array([-1.6, -1.1, -0.6])                                     # below the print's white
+    scene_in = levels[:, None] + colour[None, :]
+    log_e = sc.scene_to_print(scene_in, scene).astype(np.float32)[None]
+    expected = np.log10(np.power(10.0, scene_in) @ a.T.astype(np.float64))
+    for fast in (True, False):
+        out = sc.render(None, params, log_e=log_e, camera_matrix=a, output_float=not fast, denoise=False)
+        linear = sc.srgb_decode(out[0].astype(np.float64) / (255 if fast else 1))
+        got = sc.print_to_scene(np.log10(linear / sc.MID_GREY), scene)
+        np.testing.assert_allclose(got, expected, atol=0.03 if fast else 0.002)
+
+
+def test_identity_camera_profile_changes_nothing_with_auto_print(portra):
+    photos, _, stats, model = portra
+    raw, _ = photos[0]
+    params = sc.frame_params(stats[0], model, auto_print=True)
+    assert params.print_paper
+    for fast in (True, False):
+        plain = sc.render(raw, params, output_float=not fast)
+        same = sc.render(raw, params, output_float=not fast, camera_matrix=np.eye(3, dtype=np.float32))
+        limit = 1 if fast else 2e-3
+        assert np.abs(plain.astype(np.float64) - same.astype(np.float64)).max() <= limit
+
+
+def test_greys_stay_neutral_with_camera_profile_and_auto_print(tmp_path):
+    a = sc.load_camera_profile(str(_profile_file(tmp_path))).working_matrix()
+    grey = np.repeat(np.linspace(-2.0, 0.6, 50, dtype=np.float32)[:, None], 3, axis=1)[None]
+    for fast in (True, False):
+        out = sc.render(None, _print_params(), log_e=grey, camera_matrix=a, output_float=not fast, denoise=False)
+        lab = srgb_to_lab(out.reshape(-1, 3).astype(np.float64) / (1 if not fast else 255))
+        assert np.hypot(lab[:, 1], lab[:, 2]).max() < 0.6
+
+
+def _icc(curve: bytes) -> bytes:
+    """A minimal ICC profile holding only a green tone curve."""
+    import struct
+    table = struct.pack(">I", 1) + b"gTRC" + struct.pack(">II", 144, len(curve))
+    return bytes(128) + table + curve
+
+
+def _gamma_curve(gamma):
+    import struct
+    return b"curv" + bytes(4) + struct.pack(">IH", 1, round(gamma * 256))
+
+
+def test_icc_tone_curves_are_read():
+    import struct
+    x = np.arange(sc.TRANSFER_STEPS + 1) / sc.TRANSFER_STEPS
+    np.testing.assert_allclose(sc.icc_transfer(_icc(_gamma_curve(2.2))), x ** (563 / 256), atol=1e-6)
+    np.testing.assert_allclose(sc.icc_transfer(_icc(b"curv" + bytes(4) + struct.pack(">I", 0))), x, atol=1e-6)
+    sampled = b"curv" + bytes(4) + struct.pack(">I", 3) + struct.pack(">3H", 0, 16384, 65535)
+    assert sc.icc_transfer(_icc(sampled))[sc.TRANSFER_STEPS // 2] == pytest.approx(16384 / 65535, abs=1e-4)
+    fixed = lambda *values: b"".join(struct.pack(">i", round(v * 65536)) for v in values)
+    srgb = b"para" + bytes(4) + struct.pack(">HH", 3, 0) + fixed(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
+    np.testing.assert_allclose(sc.icc_transfer(_icc(srgb)), sc.srgb_decode(x), atol=2e-4)
+    assert sc.icc_transfer(b"not a profile") is None
+    assert sc.icc_transfer(_icc(b"mft2" + bytes(40))) is None            # look-up-table profile: not used
+
+
+def test_embedded_profile_decides_how_a_scan_is_linearized(tmp_path):
+    """A 16-bit TIFF with a gamma profile and a JPEG with an Adobe RGB-like curve are not taken as linear /
+    sRGB: they give the same linear values as their untagged twins."""
+    import tifffile
+    from PIL import Image, ImageCms
+    ramp = np.linspace(0.05, 0.9, 64)
+    tile = lambda values, dtype, top: np.rint(np.repeat(np.tile(values, (8, 1))[..., None], 3, 2) * top).astype(dtype)
+    gamma = 563 / 256
+    tifffile.imwrite(tmp_path / "gamma16.tif", tile(ramp ** (1 / gamma), np.uint16, 65535), photometric="rgb",
+                     iccprofile=_icc(_gamma_curve(2.2)))
+    tifffile.imwrite(tmp_path / "linear16.tif", tile(ramp, np.uint16, 65535), photometric="rgb",
+                     iccprofile=_icc(_gamma_curve(1.0)))
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    tifffile.imwrite(tmp_path / "srgb16.tif", tile(sc.srgb_encode(ramp), np.uint16, 65535), photometric="rgb",
+                     iccprofile=srgb)
+    Image.fromarray(tile(ramp ** (1 / gamma), np.uint8, 255)).save(tmp_path / "adobe.png", icc_profile=_icc(_gamma_curve(2.2)))
+    assert sc.input_transfer(str(tmp_path / "linear16.tif")) is None
+    for name, tolerance in (("gamma16.tif", 2e-4), ("linear16.tif", 2e-5), ("srgb16.tif", 3e-4), ("adobe.png", 0.006)):
+        values = sc.load_linear(str(tmp_path / name), True)
+        np.testing.assert_allclose(values[0, :, 1], ramp, atol=tolerance, err_msg=name)

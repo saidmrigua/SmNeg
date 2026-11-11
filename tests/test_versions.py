@@ -26,3 +26,9 @@ def test_versions_agree():
 def test_changelog_mentions_the_version():
     version = find("pyproject.toml", r'^version = "([^"]+)"')
     assert f"## [{version}]" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_windows_file_version_follows_the_version():
+    spec = (ROOT / "packaging" / "smneg.spec").read_text(encoding="utf-8")
+    assert "filevers=version_numbers, prodvers=version_numbers" in spec
+    assert not re.search(r"(filevers|prodvers)=\(\d", spec)       # no number written by hand

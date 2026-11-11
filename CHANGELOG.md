@@ -41,15 +41,27 @@ Answer to the community's IT8 test of 0.1.0 (see `AUDIT_REPORT.md`): a new, meas
   See `docs/calibration.md`.
 - RAW decoding pins LibRaw's scale (`adjust_maximum_thr=0`): every frame of a roll on the same scale.
 - **Camera profile** (`CAMERA` button): loads an IT8 profile report from `it8_profiler` (camera + light),
-  applied by the Scientific engine in linear light, neutral-preserving; saved with the session.
+  applied by the Scientific engine in linear light (on scene exposure when Auto print is on),
+  neutral-preserving; saved with the session.
 - Color keys range ±50 (was ±20) to leave room for picked corrections.
 - Exports (JPEG and 16-bit TIFF) embed an sRGB ICC profile. `tifffile` is now a required dependency.
 - Info bar shows the C/M/Y/D values and how the film base was found.
+- `C` (auto-crop) no longer discards a manual crop: it says so and leaves the crop (`K` changes or removes it).
+- Windows file version follows the app version; the built app's `--self-test` now also runs the Scientific
+  engine and checks the ICC profile of exported TIFF and JPEG files.
 - Sharpness radius follows the image size, so the export matches the preview.
 - HOLD no longer reverts color/density edits; turning HOLD on is a single undoable step.
 - Camera RAW from Canon, Sony, Olympus/OM, Panasonic, Pentax and the other formats LibRaw reads
   (0.1.0 accepted only Nikon, Fujifilm and DNG).
 - JPEG, PNG and 8-bit TIFF scans are decoded as sRGB-encoded values (they were treated as linear).
+- An ICC profile embedded in a TIFF, JPEG or PNG scan now decides how it is linearized (Scientific engine):
+  gamma-encoded 16-bit TIFFs and Adobe RGB files no longer invert with wrong tones.
+- The app's windows are declared sRGB: on wide-gamut displays (macOS) the preview is colour-managed and matches
+  the exported files. JPEG exports also carry the EXIF ColorSpace tag.
+- Mirror always flips the picture left to right as seen, also on frames rotated 90° or 270°.
+- Grey picks after the second one keep C/Y trims made by hand.
+- Copy / paste (`⌘C` / `⌘V`) in the Scientific engine now also carries the measured print settings (exposure,
+  contrast, colour balance), so the pasted frame is printed like the copied one; `⇧⌘V` releases it.
 - Folder import decodes previews in parallel (about 2.5× faster) and lists the files it could not read.
 - A blank (black) frame on a roll no longer breaks the roll analysis.
 - Accuracy tests (`tests/test_scientific.py`, `tests/test_film_profile.py`) and an audit harness
