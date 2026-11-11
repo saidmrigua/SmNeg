@@ -10,7 +10,10 @@ Releases are built by GitHub Actions (`.github/workflows/release.yml`) when a ta
 3. **macos-app** (Apple Silicon runner, so the app is arm64 only) and **windows-app**: PyInstaller bundles. Each bundle runs
    `SMneg --self-test` (imports every module, finds the assets, decodes and inverts a sample TIFF, builds the main window
    offscreen) before it is packaged.
-4. **publish**: attaches `SMneg-macOS-arm64.dmg`, `SMneg-Windows-x64.zip`, the wheel and the sdist to the Release.
+4. **publish**: attaches `SMneg-macOS-arm64.dmg`, `SMneg-Windows-x64.zip`, the wheel and the sdist to the Release. The
+   release notes are written from the version: download links, install steps and that version's section of the changelog.
+   The website and the README link to `releases/latest/download/...`, so their download buttons always fetch the newest
+   release without being edited.
 
 CI (`ci.yml`) additionally installs the built wheel and sdist into a clean virtual environment outside the checkout.
 

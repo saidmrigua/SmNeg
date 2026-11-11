@@ -9,7 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Code signing / notarization of the macOS app and signing of the Windows app.
 - Real-hardware testing on Windows.
 
-## [0.2.0] - 2026-11-10
+## [0.2.0] - 2026-11-11
 Answer to the community's IT8 test of 0.1.0 (see `AUDIT_REPORT.md`): a new, measured inversion engine.
 
 - **Scientific engine** (new default for new sessions; `ENGINE` menu next to the tone profile):

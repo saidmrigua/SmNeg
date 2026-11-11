@@ -14,7 +14,7 @@ The apps are **not code-signed or notarized**, so the system asks for confirmati
 | macOS 11+ on Apple Silicon (M1 or newer) | `SMneg-macOS-arm64.dmg` | Intel Macs: [install from source](#from-source) |
 | Windows 10/11, 64-bit | `SMneg-Windows-x64.zip` | the interface has not been checked on real Windows hardware yet |
 
-The refreshed `v0.1.0` also provides `SMneg-macOS.dmg` and `SMneg-Windows.zip` as compatibility aliases of the same corrected builds. See `BUILD_INFO.txt` for the source commit and `SHA256SUMS.txt` for file checksums.
+Every release also provides `SMneg-macOS.dmg` and `SMneg-Windows.zip`, identical copies under the older file names. See `BUILD_INFO.txt` for the source commit and `SHA256SUMS.txt` for file checksums.
 
 ### macOS (Apple Silicon): `SMneg-macOS-arm64.dmg`
 1. Open the `.dmg` and drag **SMneg** to *Applications*.
@@ -38,7 +38,7 @@ python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\
 pip install -e ".[tiff]"        # "tiff" adds XMP metadata in 16-bit TIFF
 smneg                           # or: python -m smneg   or: python smneg.py
 ```
-Or install the wheel from a Release: `pip install smneg-0.1.0-py3-none-any.whl`.
+Or install the wheel from a Release: `pip install smneg-0.2.0-py3-none-any.whl` (the file name carries the version).
 
 ## Uninstall and reset
 - Delete the app (or `pip uninstall smneg`).
