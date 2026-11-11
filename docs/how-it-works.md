@@ -51,14 +51,16 @@ Each step has a physical meaning and is measured, not guessed:
    - each channel's balanced density is normalized between a shadow end and a highlight end (0.5 / 99.5 %
      of the film pixels in the centre of the scan; holder, sprocket holes and bare light excluded), then
      shown through a 1/1.4 power as display value;
-   - the ends are split into **brightness** (exposure and contrast) and **colour** (each channel's ends
-     relative to brightness). Colour belongs to the film, so it is always the roll's: the median of its
-     frames, which one strongly coloured frame cannot tint. Classic takes it from each frame alone, which
-     is why its colour follows the picture's content;
-   - **Meter** (`METER` menu, saved with the session) sets where brightness comes from: *Frame* (each
-     frame alone, like Classic), *Roll lock* (the whole roll: the same tone prints the same in every
-     frame) or *Balanced* (default, half of each). On the synthetic roll, grey chroma is 0.5 with
-     Balanced, against 2.7 for Classic;
+   - the ends are split into **brightness** (exposure and contrast) and **colour** (each channel against
+     brightness: a slope and an offset). Colour belongs to the film, so it is the roll's: the median of
+     its frames, which one strongly coloured picture cannot tint. Classic takes it from each frame alone,
+     which is why its colour follows the picture's content. A frame whose film base has another colour
+     than the roll's (another film or light in the same folder, tolerance 0.05 log) keeps its own colour,
+     and so do rolls of fewer than three frames;
+   - **Meter** (`METER` menu, saved with the session) sets where brightness comes from: *Frame* (default:
+     each frame fills black to white on its own, like Classic), *Roll lock* (the whole roll: the same tone
+     prints the same in every frame) or *Balanced* (half of each). On the synthetic roll, grey chroma is
+     0.3–0.8 with any meter, against 1.7–2.7 for Classic (up to 5.7 on its worst frame);
    - with a film profile or on B&W film the three channels share the same ends (the measured balance is
      trusted);
    - colour noise is smoothed (edge-aware, below 1.5 px of a 1600 px preview); brightness and grain are

@@ -32,7 +32,8 @@ Answer to the community's IT8 test of 0.1.0 (see `AUDIT_REPORT.md`): a new, meas
 - **Roll balance**: save the dye balance measured on a full roll as a film profile and reuse it on short
   rolls or single frames of the same film (`FILM` menu).
 - Auto print smooths the colour noise it amplifies (edge-aware, brightness and grain untouched).
-- **Meter** choice for Auto print: Frame, Balanced (default) or Roll lock (one print setting for the roll).
+- **Meter** choice for Auto print brightness: Frame (default), Balanced or Roll lock. Colour always comes
+  from the roll, except for frames on another film base.
 - B&W detection no longer mistakes a colourless colour frame (plain sky) for B&W: a base with the
   orange mask is always colour film.
 - **Film profile** (`FILM` button): calibrate a film + rig from a ColorChecker photographed on the film

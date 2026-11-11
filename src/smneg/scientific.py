@@ -70,7 +70,7 @@ class RollModel:
     meter: float            # roll-median green density above base (exposure reference)
     frames: int = 0
     luma_ends: np.ndarray | None = None    # (2,) roll's shadow / highlight ends of brightness (all frames pooled)
-    colour_ends: np.ndarray | None = None  # (2, 3) each channel's ends relative to brightness (median of the frames)
+    colour_ends: np.ndarray | None = None  # (2, 3) each channel against brightness: slope and offset (median of the frames)
 
 
 @dataclass
@@ -350,8 +350,9 @@ def roll_model(stats: list[FrameStats], film=None, reference: np.ndarray | None 
                            slopes=film.slopes_array if film is not None else slopes, anchor=0.0,
                            crosstalk=film.matrix_array if film is not None else None)
         _, colour, luma = print_ends(s.samples, zero, film is not None)
-        lumas.append(luma)
-        colours.append(colour)
+        if same_film(zero.base, base):       # frames on another base do not define the roll
+            lumas.append(luma)
+            colours.append(colour)
     if lumas:
         model.luma_ends = np.percentile(np.concatenate(lumas), PRINT_ENDS).astype(np.float64)
         model.colour_ends = np.median(np.array(colours), axis=0)
@@ -424,12 +425,14 @@ def frame_params(stats: FrameStats, roll: RollModel, film=None, auto_print: bool
     params = _frame_params(stats, roll, film)
     if auto_print and stats.samples is not None and len(stats.samples) >= 100:
         luma, colour, _ = print_ends(stats.samples, params, film is not None or params.mono)
-        if roll.luma_ends is not None and meter < 1.0 and not params.mono:
-            # exposure and contrast (brightness ends) and colour (channel ends) are blended with the roll's:
-            # the roll's colour is the median of its frames, so one strongly coloured frame cannot tint it
+        if roll.luma_ends is not None and not params.mono:
+            # exposure and contrast: the frame's own brightness ends, blended with the roll's by the meter
             luma = roll.luma_ends + meter * (luma - roll.luma_ends)
-            colour = roll.colour_ends                    # colour belongs to the film: always the roll's
-        params.bounds = luma[:, None] + colour
+            # colour belongs to the film: the roll's (median of its frames, so one strongly coloured picture
+            # cannot tint it), unless this frame sits on another base (another film or light in the folder)
+            if roll.frames >= MIN_ROLL_COLOUR and same_film(params.base, roll.base):
+                colour = roll.colour_ends
+        params.bounds = np.array([colour[0] * luma[0] + colour[1], colour[0] * luma[1] + colour[1]])
         params.print_paper = True
     if grey_picks and len(grey_picks) >= 2 and not params.mono:
         params.balance = grey_balance(grey_picks, params)
@@ -515,6 +518,8 @@ PAPER_BLACK = float(np.log10(0.004 / 0.18))    # paper black (Dmax ~2.4, L* ~3.6
 PAPER_SHOULDER, PAPER_TOE = 6.0, 6.0           # knee sharpness (per decade)
 BEYOND_WHITE = (PAPER_WHITE + 0.15, PAPER_WHITE + 0.55)   # log exposure where colour fades to neutral
 PRINT_ENDS = (0.5, 99.5)      # film-pixel percentiles taken as shadow and highlight ends
+SAME_FILM_TOLERANCE = 0.05    # colour difference (log10) between a frame's base and the roll's
+MIN_ROLL_COLOUR = 3           # frames needed before the roll's colour replaces a frame's own
 PRINT_POWER = 1.4             # display value = normalized density ** (1 / 1.4), as in the Classic engine
 PRINT_LUMA = np.array([0.25, 0.5, 0.25], np.float32)
 
@@ -522,17 +527,27 @@ PRINT_LUMA = np.array([0.25, 0.5, 0.25], np.float32)
 def print_ends(samples: np.ndarray, params: FrameParams, shared: bool):
     """Shadow and highlight ends (0.5 / 99.5 % of the film pixels) of balanced density.
 
-    Returns (brightness ends (2,), each channel's ends relative to them (2, 3), the densities' luma).
-    The per-channel part also absorbs what a single film base cannot: a slightly different minimum density
-    in each layer and scanner flare, which otherwise tint the highlights. ``shared`` (film profile, B&W)
-    trusts the measured balance: no per-channel part."""
+    Returns (brightness ends (2,), colour (2, 3), the densities' luma). Colour describes each channel
+    against brightness as a line through its two ends: row 0 the slope, row 1 the offset. It absorbs what
+    a single film base and the estimated dye slopes cannot (a slightly different minimum density in each
+    layer, scanner flare, a residual slope error), which otherwise tint the highlights or the shadows.
+    ``shared`` (film profile, B&W) trusts the measured balance: slope 1, offset 0."""
     flat = FrameParams(base=params.base, slopes=params.slopes, anchor=0.0, crosstalk=params.crosstalk)
     density = balanced_density(np.power(np.float32(10.0), -samples)[None], flat)[0]
     luma = density @ PRINT_LUMA
     luma_ends = np.percentile(luma, PRINT_ENDS).astype(np.float64)
     if shared:
-        return luma_ends, np.zeros((2, 3)), luma
-    return luma_ends, np.percentile(density, PRINT_ENDS, axis=0) - luma_ends[:, None], luma
+        return luma_ends, np.array([[1.0] * 3, [0.0] * 3]), luma
+    ends = np.percentile(density, PRINT_ENDS, axis=0)
+    slope = (ends[1] - ends[0]) / max(luma_ends[1] - luma_ends[0], 1e-3)
+    return luma_ends, np.array([slope, ends[0] - slope * luma_ends[0]]), luma
+
+
+def same_film(base: np.ndarray, roll_base: np.ndarray) -> bool:
+    """A frame's base has the roll's colour (it may differ in brightness: another scan exposure). A different
+    colour means another film or another light: such a frame keeps its own colour."""
+    difference = np.log10(np.asarray(base, np.float64)) - np.log10(np.asarray(roll_base, np.float64))
+    return bool(np.ptp(difference) <= SAME_FILM_TOLERANCE)
 
 
 def _softplus(z, sharpness):

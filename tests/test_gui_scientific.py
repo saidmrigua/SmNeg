@@ -308,7 +308,7 @@ def test_meter_choice_changes_auto_print_and_is_saved(gui, tmp_path):
     for path in _synthetic_negatives(tmp_path, 3):
         assert widget.import_frame(str(path))
     widget.session_folder = tmp_path
-    assert widget.meter == 'balanced'
+    assert widget.meter == 'frame'
     balanced = widget.render_item(widget.items[1]).copy()
     widget.set_meter('roll')
     assert not np.array_equal(balanced, widget.render_item(widget.items[1]))

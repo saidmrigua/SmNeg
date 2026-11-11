@@ -119,8 +119,8 @@ class SMnegWindow(QMainWindow):
         self.film_profile = None            # film_profile.FilmProfile (film + rig, from a chart shot on the film)
         self.film_profile_path = ""
         self.chart_points = []
-        meter = app_settings().value("meter", "balanced", type=str)
-        self.meter = meter if meter in METERS else "balanced"     # how much Auto print follows each frame
+        meter = app_settings().value("meter", "frame", type=str)
+        self.meter = meter if meter in METERS else "frame"     # how much Auto print follows each frame
         self.base_reference = None           # film base measured on scans of clear film (the roll's leader)
         self.base_reference_files = []
         self.camera_profile_path = ""
@@ -326,9 +326,9 @@ class SMnegWindow(QMainWindow):
         for key, text in (("frame", "Frame"), ("balanced", "Balanced"), ("roll", "Roll lock")):
             self.meter_box.addItem(text, key)
         self.meter_box.setToolTip(
-            "Auto print exposure and contrast:\n"
-            "Frame: each frame on its own (corrects exposure errors, but follows the picture's content).\n"
-            "Balanced: half frame, half roll (default).\n"
+            "Auto print exposure and contrast (the colour always comes from the roll):\n"
+            "Frame: each frame fills black to white on its own (default).\n"
+            "Balanced: half frame, half roll.\n"
             "Roll lock: one setting for the whole roll; the same tone prints the same in every frame.")
         self.meter_box.setCurrentIndex(max(0, self.meter_box.findData(self.meter)))
         self.meter_box.activated.connect(self.change_meter)
@@ -520,7 +520,7 @@ class SMnegWindow(QMainWindow):
         self.set_meter(self.meter_box.itemData(index))
 
     def set_meter(self, meter, quiet=False):
-        self.meter = meter if meter in METERS else "balanced"
+        self.meter = meter if meter in METERS else "frame"
         self.meter_box.setCurrentIndex(max(0, self.meter_box.findData(self.meter)))
         self._log_cache.clear()
         self.zoom_cache = None
