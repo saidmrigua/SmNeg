@@ -23,7 +23,7 @@ RAW or 16-bit TIFF in, lab-style printer-lights color, full-resolution JPEG or 1
 
 <img src="docs/images/hero.jpg" width="820" alt="Color photograph of a traditional Moroccan water seller in a red outfit walking among pigeons on a palm-lined square, converted from a film negative with SMneg">
 
-<sub>Camera scan, converted with SMneg (S Curve tone). No retouching. Photograph © Said Mrigua.</sub>
+<sub>Camera scan, converted with SMneg 0.2.0. No retouching. Photograph © Said Mrigua.</sub>
 
 **[Website](https://smneg.saidmrigua.com/)** · **[Before / After](#before--after)** · **[Features](#what-it-does)** · **[Demo](#see-it-in-action)** · **[Tutorial](#tutorial)** · **[Install](#install)** · **[Documentation](#documentation)** · **[License](#license)**
 
@@ -37,8 +37,8 @@ RAW or 16-bit TIFF in, lab-style printer-lights color, full-resolution JPEG or 1
 
 <sub>ELEVEN FRAMES FROM ONE ROLL</sub>
 
-**The negative as photographed, and the result.** Nikon Z8 camera scans of one roll, converted with SMneg using the
-S Curve tone profile. No other adjustments, no retouching.
+**The negative as photographed, and the result.** Nikon Z8 camera scans of one roll, converted with SMneg 0.2.0
+(Scientific engine). No retouching.
 
 | Negative | SMneg |
 |:---:|:---:|
@@ -134,13 +134,13 @@ How both engines work: [docs/how-it-works.md](docs/how-it-works.md).
 
 <a href="docs/media/smneg-demo.mp4"><img src="docs/images/demo.gif" width="820" alt="Screen recording of SMneg: open a roll, rotate, correct with printer lights, copy and paste across the roll, export"></a>
 
-<sub><a href="docs/media/smneg-demo.mp4"><b>▶ Watch the full demo video (MP4, 64 s)</b></a></sub>
+<sub><a href="docs/media/smneg-demo.mp4"><b>▶ Watch the full demo video (MP4, 47 s)</b></a></sub>
 
 </div>
 
-Screen recording of the real app on six Nikon Z8 scans (recorded with SMneg 0.1.0): open the roll, rotate, S Curve and
-printer-light correction, copy and paste across the roll, full-resolution export. Loading and export are sped up,
-as marked on screen. The preview above plays at double speed. No sound.
+Recording of the real app, SMneg 0.2.0, on six Nikon Z8 scans: open the roll, rotate and auto-crop, printer-light
+correction, Auto print and tone profiles, copy and paste, pass a frame, export. Importing is sped up, as marked on
+screen. The preview above plays faster than the video. No sound.
 
 ---
 
@@ -158,7 +158,7 @@ as marked on screen. The preview above plays at double speed. No sound.
 <td><img src="docs/images/tutorial/step-04.jpg" alt="Slide 4 of 10, The interface: toolbar, enlarged frame, per-frame C M Y D values and status, and the control panel"></td>
 </tr>
 <tr>
-<td><img src="docs/images/tutorial/step-05.jpg" alt="Slide 5 of 10, Step 03 Correct: printer lights, Q/A cyan, W/S magenta, E/D yellow, arrow up/down density, T tone, R reset"></td>
+<td><img src="docs/images/tutorial/step-05.jpg" alt="Slide 5 of 10, Step 03 Correct: printer lights, Q/A cyan, W/S magenta, E/D yellow, arrow up/down density, T tone, L Auto print, N grey picker, B film base, R reset"></td>
 <td><img src="docs/images/tutorial/step-06.jpg" alt="Slide 6 of 10, Step 04 The whole roll: Hold, copy and paste settings, crop and rotate, mark a frame Pass, undo any change"></td>
 </tr>
 <tr>
@@ -171,13 +171,11 @@ as marked on screen. The preview above plays at double speed. No sound.
 </tr>
 </table>
 
-<sub>The screenshots inside the slides and the video show the 0.1.0 window; the workflow and these shortcuts are the same in 0.2.0. The new keys
-(<kbd>L</kbd> Auto print, <kbd>N</kbd> grey picker, <kbd>B</kbd> film base) are in <a href="docs/shortcuts.md">docs/shortcuts.md</a>,
-and the step-by-step guide is <a href="docs/workflow.md">docs/workflow.md</a>.</sub>
+<sub>Every shortcut is also in <a href="docs/shortcuts.md">docs/shortcuts.md</a>, and the step-by-step guide is <a href="docs/workflow.md">docs/workflow.md</a>.</sub>
 
 ### The app
 
-![Grid view with six frames, two of them marked PASS](docs/images/ui-grid.png)
+![Grid view with six frames, one of them marked PASS](docs/images/ui-grid.png)
 
 <sub>Grid view: six frames per page, printer-lights keys, density and tone controls. Frames marked PASS are skipped at export.</sub>
 
